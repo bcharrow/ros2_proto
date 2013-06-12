@@ -87,6 +87,22 @@ bool TransportTCP::setNonBlocking()
   return true;
 }
 
+bool TransportTCP::setReuse()
+{
+  int flag = 1;
+  int error;
+  if ((error = setsockopt(sock_, SOL_SOCKET, SO_REUSEADDR, &flag, sizeof(flag))) != 0)
+  {
+    ROS_ERROR("setting SO_REUSEADDR on socket [%d] failed with error [%d]", sock_, error);
+    return false;
+  }
+  else
+  {
+    ROS_INFO("Set SO_REUSEADDR");
+  }
+  return true;
+}
+
 bool TransportTCP::initializeSocket()
 {
   ROS_ASSERT(sock_ != ROS_INVALID_SOCKET);
@@ -359,6 +375,11 @@ bool TransportTCP::listen(int port, int backlog, const AcceptCallback& accept_cb
     return false;
   }
 
+
+  if (port != 0)
+  {
+    setReuse();
+  }
 
   if (bind(sock_, (sockaddr *)&server_address_, sa_len_) < 0)
   {

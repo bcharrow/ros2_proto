@@ -128,7 +128,7 @@ private:
   bool initializeSocket();
 
   bool setNonBlocking();
-
+  bool setReuse();
   /**
    * \brief Set the socket to be used by this transport
    * \param sock A valid TCP socket
