@@ -38,7 +38,11 @@
 #include <ros/types.h>
 #include "transport.h"
 
+#include <boost/thread/mutex.hpp>
 #include <boost/thread/recursive_mutex.hpp>
+
+#include <list>
+
 #include "io.h"
 #include "common.h"
 
@@ -82,6 +86,7 @@ public:
   std::string getClientURI();
 
   typedef boost::function<void(const TransportTCPPtr&)> AcceptCallback;
+  typedef boost::function<void(const boost::shared_array<uint8_t>&, uint32_t)> ReadMessageCallback;
   /**
    * \brief Start a server socket and listen on a port
    * \param port The port to listen on
@@ -107,6 +112,11 @@ public:
   // overrides from Transport
   virtual int32_t read(uint8_t* buffer, uint32_t size);
   virtual int32_t write(uint8_t* buffer, uint32_t size);
+
+  void enableMessagePass();
+  void setMsgCallback(const ReadMessageCallback &read_msg_cb);
+  void sendMessage(const boost::shared_array<uint8_t> &buffer, uint32_t size);
+  void readMessage();
 
   virtual void enableWrite();
   virtual void disableWrite();
@@ -159,6 +169,24 @@ private:
 
   std::string connected_host_;
   int connected_port_;
+
+  void writeMessage(const TransportPtr &trans);
+  void readMessage(const TransportPtr &trans);
+
+  boost::mutex message_mutex_; // Guard access to message variables
+  bool messages_; // True if we're only doing send / recv of messages
+  struct Message {
+    boost::shared_array<uint8_t> msg;
+    uint32_t msg_filled; // Amount read
+    uint32_t msg_sz;
+    uint32_t sz_filled;
+    uint8_t sz_bytes[4];
+  };
+  bool reading_;  // True if currently reading a message from socket
+  Message read_msg_; // Message currently being read
+  std::list<Message> send_msgs_; // Outgoing messages
+  uint32_t sent_; // Total bytes sent so far of first message in send_msgs_
+  ReadMessageCallback readmsg_cb_;
 };
 
 }

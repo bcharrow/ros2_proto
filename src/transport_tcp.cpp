@@ -57,6 +57,9 @@ TransportTCP::TransportTCP(PollSet* poll_set, int flags)
 , server_port_(-1)
 , poll_set_(poll_set)
 , flags_(flags)
+, messages_(false)
+, reading_(false)
+, sent_(0)
 {
 
 }
@@ -741,6 +744,133 @@ std::string TransportTCP::getClientURI()
   uri << ip << ":" << port;
 
   return uri.str();
+}
+
+void TransportTCP::enableMessagePass()
+{
+  messages_ = true;
+  setReadCallback(boost::bind(&TransportTCP::readMessage, this, _1));
+  setWriteCallback(boost::bind(&TransportTCP::writeMessage, this, _1));
+}
+
+void TransportTCP::setMsgCallback(const ReadMessageCallback &cb)
+{
+  readmsg_cb_ = cb;
+}
+
+void TransportTCP::writeMessage(const TransportPtr &trans)
+{
+  boost::mutex::scoped_lock lock(message_mutex_);
+  if (send_msgs_.size() == 0)
+  {
+    ROS_ERROR("Asked to write message, but no messages left");
+    ROS_BREAK();
+  }
+
+  // Send size
+  const Message &msg = send_msgs_.front();
+  uint32_t left = msg.msg_sz - sent_;
+  int wrote = write(msg.msg.get() + sent_, left);
+  if (wrote < 0)
+  {
+    ROS_WARN("Error writing");
+    return;
+  }
+  sent_ += wrote;
+  ROS_INFO("sent_ = %i", sent_);
+
+  if (sent_ == msg.msg_sz)
+  {
+    send_msgs_.pop_front();
+    sent_ = 0;
+    if (send_msgs_.size() == 0)
+    {
+      disableWrite();
+    }
+  }
+}
+
+void TransportTCP::readMessage(const TransportPtr &trans)
+{
+  boost::mutex::scoped_lock lock(message_mutex_);
+  if (!messages_)
+  {
+    ROS_ERROR("readMessage() called, but enableMessagePass() was not");
+    ROS_BREAK();
+  }
+
+  if (!reading_)
+  {
+    // ROS_INFO("Starting to read a message");
+    read_msg_.msg.reset();
+    read_msg_.msg_filled = 0;
+    read_msg_.sz_filled = 0;
+    read_msg_.msg_sz = 0;
+    reading_ = true;
+  }
+
+  // Read message length
+  if (read_msg_.sz_filled != 4)
+  {
+    uint32_t to_read = 4 - read_msg_.sz_filled;
+    int32_t read_sz = read(read_msg_.sz_bytes + read_msg_.sz_filled, to_read);
+    // ROS_INFO("Asked for %i bytes, read %i", to_read, read_sz);
+    if (read_sz < 0)
+    {
+      ROS_WARN("Error reading");
+      return;
+    }
+    read_msg_.sz_filled += read_sz;
+    if (read_msg_.sz_filled == 4)
+    {
+      read_msg_.msg_sz = *reinterpret_cast<uint32_t*>(read_msg_.sz_bytes);
+      read_msg_.msg.reset(new uint8_t[read_msg_.msg_sz]);
+      // ROS_INFO("Message size is: %u", read_msg_.msg_sz);
+    }
+    else
+    {
+      return;
+    }
+  }
+
+  // Read remaining bytes of message
+  uint32_t to_read = read_msg_.msg_sz - read_msg_.msg_filled;
+  int32_t read_sz = read(read_msg_.msg.get() + read_msg_.msg_filled, to_read);
+  if (read_sz < 0)
+  {
+    ROS_WARN("Error reading");
+    return;
+  }
+  read_msg_.msg_filled += read_sz;
+
+  if (read_msg_.msg_filled == read_msg_.msg_sz)
+  {
+    readmsg_cb_(read_msg_.msg, read_msg_.msg_sz);
+    reading_ = false;
+  }
+}
+
+void TransportTCP::sendMessage(const boost::shared_array<uint8_t> &buffer, uint32_t size)
+{
+  boost::mutex::scoped_lock lock(message_mutex_);
+  if (!messages_)
+  {
+    ROS_ERROR("sendMessage() called, but enableMessagePass() was not");
+    ROS_BREAK();
+  }
+
+  Message msg;
+  msg.msg_sz = size + 4;
+  msg.msg = boost::shared_array<uint8_t>(new uint8_t[msg.msg_sz]);
+  std::copy(buffer.get(), buffer.get() + size, msg.msg.get() + 4);
+  *(uint32_t*)msg.msg.get() = size;
+
+  send_msgs_.push_back(msg);
+  if (send_msgs_.size() == 1)
+  {
+    sent_ = 0;
+    enableWrite();
+  }
 }
 
 } // namespace ros2

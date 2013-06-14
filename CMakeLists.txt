@@ -1,10 +1,15 @@
 cmake_minimum_required(VERSION 2.8.3)
 project(ros2_comm)
 
+set(CMAKE_BUILD_TYPE RelWithDebInfo)
+
 find_package(catkin REQUIRED COMPONENTS cpp_common rosconsole roscpp_serialization)
 
 ## System dependencies are found with CMake's conventions
 find_package(Boost REQUIRED COMPONENTS system signals)
+
+find_package(PkgConfig REQUIRED)
+pkg_search_module(zmq REQUIRED libzmq)
 
 catkin_package(
 #  INCLUDE_DIRS include
@@ -20,31 +25,16 @@ catkin_package(
 ## Specify additional locations of header files
 ## Your package locations should be listed before other locations
 # include_directories(include ${catkin_INCLUDE_DIRS} ${Boost_INCLUDE_DIRS})
-include_directories(${catkin_INCLUDE_DIRS} ${Boost_INCLUDE_DIR})
+include_directories(${catkin_INCLUDE_DIRS} ${Boost_INCLUDE_DIRS})
 
-## Declare a cpp library
-# add_library(ros2_comm
-#   src/${PROJECT_NAME}/ros2_comm.cpp
-# )
-
-add_library(ros2_comm src/core.cpp src/io.cpp src/poll_set.cpp 
+add_library(ros2_comm src/core.cpp src/io.cpp src/poll_set.cpp
   src/poll_manager.cpp src/common.cpp src/transport_tcp.cpp src/header.cpp)
-target_link_libraries(ros2_comm ${catkin_LIBRARIES} ${Boost_LIBRARIES})
-
+target_link_libraries(ros2_comm ${catkin_LIBRARIES} ${Boost_LIBRARIES} ${zmq_LIBRARIES})
 # Declare a cpp executable
 add_executable(simple_sub src/simple_sub.cpp)
 add_executable(simple_pub src/simple_pub.cpp)
 target_link_libraries(simple_sub ros2_comm)
 target_link_libraries(simple_pub ros2_comm)
-
-## Add cmake target dependencies of the executable/library
-## as an example, message headers may need to be generated before nodes
-# add_dependencies(ros2_comm_node ros2_comm_generate_messages_cpp)
-
-## Specify libraries to link a library or executable target against
-# target_link_libraries(ros2_comm_node
-#   ${catkin_LIBRARIES}
-# )
 
 #############
 ## Install ##
