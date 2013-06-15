@@ -16,6 +16,15 @@
 
 namespace ros2 {
 
+uint64_t nsectime() {
+  timespec now;
+  clock_gettime(CLOCK_REALTIME, &now);
+  uint32_t sec = now.tv_sec;
+  uint32_t nsec = now.tv_nsec;
+  uint64_t time = sec * 1000000000ULL + nsec;
+  return time;
+}
+
 class Message {
 public:
   Message(uint32_t sz) : sz_(sz) {
