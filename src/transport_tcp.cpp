@@ -59,6 +59,7 @@ TransportTCP::TransportTCP(PollSet* poll_set, int flags)
 , flags_(flags)
 , messages_(false)
 , reading_(false)
+, send_msgs_(0)
 , sent_(0)
 {
 
@@ -235,7 +236,7 @@ bool TransportTCP::connect(const std::string& host, int port)
   {
     sockaddr_in *address = (sockaddr_in*) &sas;
     sas_len = sizeof(sockaddr_in);
-    
+
     address->sin_family = AF_INET;
     address->sin_port = htons(port);
     address->sin_addr.s_addr = ina.s_addr;
@@ -271,11 +272,11 @@ bool TransportTCP::connect(const std::string& host, int port)
       {
         sockaddr_in *address = (sockaddr_in*) &sas;
         sas_len = sizeof(*address);
-        
+
         memcpy(address, it->ai_addr, it->ai_addrlen);
         address->sin_family = it->ai_family;
         address->sin_port = htons(port);
-	
+
         strcpy(namebuf, inet_ntoa(address->sin_addr));
         found = true;
         break;
@@ -284,11 +285,11 @@ bool TransportTCP::connect(const std::string& host, int port)
       {
         sockaddr_in6 *address = (sockaddr_in6*) &sas;
         sas_len = sizeof(*address);
-      
+
         memcpy(address, it->ai_addr, it->ai_addrlen);
         address->sin6_family = it->ai_family;
         address->sin6_port = htons((u_short) port);
-      
+
         // TODO IPV6: does inet_ntop need other includes for Windows?
         inet_ntop(AF_INET6, (void*)&(address->sin6_addr), namebuf, sizeof(namebuf));
         found = true;
@@ -716,7 +717,7 @@ std::string TransportTCP::getClientURI()
   sockaddr_storage sas;
   socklen_t sas_len = sizeof(sas);
   getpeername(sock_, (sockaddr *)&sas, &sas_len);
-  
+
   sockaddr_in *sin = (sockaddr_in *)&sas;
   sockaddr_in6 *sin6 = (sockaddr_in6 *)&sas;
 
@@ -748,6 +749,7 @@ std::string TransportTCP::getClientURI()
 
 void TransportTCP::enableMessagePass()
 {
+  boost::mutex::scoped_lock lock(message_mutex_);
   messages_ = true;
   setReadCallback(boost::bind(&TransportTCP::readMessage, this, _1));
   setWriteCallback(boost::bind(&TransportTCP::writeMessage, this, _1));
@@ -755,6 +757,7 @@ void TransportTCP::enableMessagePass()
 
 void TransportTCP::setMsgCallback(const ReadMessageCallback &cb)
 {
+  boost::mutex::scoped_lock lock(message_mutex_);
   readmsg_cb_ = cb;
 }
 
@@ -768,19 +771,21 @@ void TransportTCP::writeMessage(const TransportPtr &trans)
   }
 
   // Send size
-  const Message &msg = send_msgs_.front();
-  uint32_t left = msg.msg_sz - sent_;
-  int wrote = write(msg.msg.get() + sent_, left);
+  Message *msg = send_msgs_.front();
+  uint32_t left = msg->msg_sz - sent_;
+  int wrote = write(msg->msg.get() + sent_, left);
   if (wrote < 0)
   {
     ROS_WARN("Error writing");
+    close();
     return;
   }
   sent_ += wrote;
-  ROS_INFO("sent_ = %i", sent_);
+  // ROS_INFO("sent_ = %i", sent_);
 
-  if (sent_ == msg.msg_sz)
+  if (sent_ == msg->msg_sz)
   {
+    delete msg;
     send_msgs_.pop_front();
     sent_ = 0;
     if (send_msgs_.size() == 0)
@@ -859,18 +864,18 @@ void TransportTCP::sendMessage(const boost::shared_array<uint8_t> &buffer, uint3
     ROS_BREAK();
   }
 
-  Message msg;
-  msg.msg_sz = size + 4;
-  msg.msg = boost::shared_array<uint8_t>(new uint8_t[msg.msg_sz]);
-  std::copy(buffer.get(), buffer.get() + size, msg.msg.get() + 4);
-  *(uint32_t*)msg.msg.get() = size;
+  Message *msg = new Message;
+  msg->msg_sz = size + 4;
+  msg->msg = boost::shared_array<uint8_t>(new uint8_t[msg->msg_sz]);
+  std::copy(buffer.get(), buffer.get() + size, msg->msg.get() + 4);
+  *(uint32_t*)msg->msg.get() = size;
 
-  send_msgs_.push_back(msg);
-  if (send_msgs_.size() == 1)
+  if (send_msgs_.empty())
   {
     sent_ = 0;
     enableWrite();
   }
+  send_msgs_.push_back(msg);
 }
 
 } // namespace ros2

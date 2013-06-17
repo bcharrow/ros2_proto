@@ -14,7 +14,8 @@ namespace ros2 {
 
 class PublishZMQ : public PublishProtocol {
 public:
-  PublishZMQ(zmq::context_t *ctx) : shutdown_(false), sock_(NULL), ctx_(ctx) {
+  PublishZMQ(zmq::context_t *ctx, size_t queue_size)
+    : shutdown_(false), sock_(NULL), ctx_(ctx), queue_(queue_size) {
 
   }
 
@@ -52,7 +53,7 @@ public:
       zmq::message_t zmqmsg_copy;
       zmqmsg_copy.copy(&zmqmsg_topic);
 
-      ROS_INFO("PublishZMQ::run() Publishing");
+      // ROS_INFO("PublishZMQ::run() Publishing");
       zmq::message_t zmqmsg_data(msg->size());
       memcpy(zmqmsg_data.data(), msg->bytes(), msg->size());
 
@@ -121,8 +122,8 @@ public:
       memcpy(topic, zmsg_topic.data(), zmsg_topic.size());
       topic[zmsg_topic.size()] = '\0';
 
-      ROS_INFO("SubscribeZMQ::run() Got data on topic '%s'",
-               topic, zmsg_topic.size());
+      // ROS_INFO("SubscribeZMQ::run() Got data on topic '%s'",
+      //          topic, zmsg_topic.size());
 
       int rcvmore;
       size_t rcvmore_sz = sizeof(rcvmore);

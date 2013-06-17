@@ -11,10 +11,16 @@ using namespace std;
 using namespace ros2;
 
 int main(int argc, char **argv) {
+  if (argc != 2) {
+    fprintf(stderr, "simple_pub msg_size\n");
+    return 1;
+  }
+  uint64_t sz = atoi(argv[1]);
+
   PollManager pm;
 
   // Message to send
-  Message msg(1000);
+  Message msg(sz);
   uint8_t *bytes = msg.bytes();
   for (int i = 0; i < msg.size(); ++i) {
     bytes[i] = 0;
@@ -30,8 +36,8 @@ int main(int argc, char **argv) {
 
   // zmq
   zmq::context_t ctx(1);
-  PublishZMQ pub_zmq(&ctx);
-  pub.registerProtocol(&pub_zmq);
+  PublishZMQ pub_zmq(&ctx, 100);
+  // pub.registerProtocol(&pub_zmq);
 
   // Startup tcp + zmq
   int port = 50000;
@@ -41,10 +47,8 @@ int main(int argc, char **argv) {
   pub_zmq.start("tcp://*:60000");
 
   pm.start();
-  for (int i = 0; i < 1000; ++i) {
-    ROS_INFO("simple_pub: Publishing");
+  while (1) {
     pub.publish(msg);
-    usleep(1000 * 100);
   }
 
   ROS_INFO("Shutting down");

@@ -25,11 +25,18 @@ public:
 
   virtual void publish(const Message &msg) {
     boost::shared_array<uint8_t> data(new uint8_t[msg.size()]);
-    ROS_INFO("TCPPublish::publish() Publishing a message");
+    // ROS_INFO("TCPPublish::publish() Publishing a message");
     std::copy(msg.bytes(), msg.bytes() + msg.size(), data.get());
 
-    for (std::list<TransportTCPPtr>::iterator it = connections_.begin();
-         it != connections_.end(); ++it) {
+    // Copy list of connections in case writing causes a disconnect
+    std::list<TransportTCPPtr> conns;
+    {
+      boost::mutex::scoped_lock lock(connections_mutex_);
+      conns = connections_;
+    }
+
+    for (std::list<TransportTCPPtr>::iterator it = conns.begin();
+         it != conns.end(); ++it) {
       (*it)->sendMessage(data, msg.size());
     }
   }
@@ -107,7 +114,7 @@ public:
   }
 
   void receive(const boost::shared_array<uint8_t> &bytes, uint32_t sz) {
-    ROS_INFO("TCPSubscribe::receive() Got a message!");
+    // ROS_INFO("TCPSubscribe::receive() Got a message!");
     Message msg(sz);
     std::copy(bytes.get(), bytes.get() + sz, msg.bytes());
     cb_(msg);

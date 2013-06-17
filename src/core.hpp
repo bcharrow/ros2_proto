@@ -16,12 +16,12 @@
 
 namespace ros2 {
 
-uint64_t nsectime() {
+uint64_t usectime() {
   timespec now;
   clock_gettime(CLOCK_REALTIME, &now);
   uint32_t sec = now.tv_sec;
   uint32_t nsec = now.tv_nsec;
-  uint64_t time = sec * 1000000000ULL + nsec;
+  uint64_t time = sec * 1000000ULL + nsec / 1000U;
   return time;
 }
 
@@ -50,11 +50,15 @@ private:
 template<typename T>
 class MessageQueue {
 public:
-  MessageQueue() {}
+  MessageQueue(size_t max_size) : max_size_(max_size) {}
 
   void push(T* msg) {
     boost::unique_lock<boost::mutex> lock(mutex_);
     queue_.push_back(msg);
+    if (max_size_ != 0 && queue_.size() > max_size_) {
+      delete queue_.front();
+      queue_.pop_front();
+    }
     cond_.notify_one();
   }
 
@@ -76,6 +80,7 @@ private:
   boost::mutex mutex_;
   boost::condition_variable cond_;
   std::deque<T*> queue_;
+  size_t max_size_;
 };
 
 //================================= Publish =================================//
@@ -128,12 +133,20 @@ public:
 
   void msgCallback(const Message &msg) {
     boost::mutex::scoped_lock lock(callback_mutex_);
-    ROS_INFO("Subscription::msgCallback Got msg with %i bytes", msg.size());
+    for (int i = 0; i < cbs_.size(); ++i) {
+      cbs_.at(i)(msg);
+    }
+  }
+
+  void registerCallback(const MessageCallback &cb) {
+    boost::mutex::scoped_lock lock(callback_mutex_);
+    cbs_.push_back(cb);
   }
 
 protected:
   boost::mutex callback_mutex_;
   std::vector<SubscribeProtocol*> subs_;
+  std::vector<MessageCallback> cbs_;
 };
 
 }

@@ -1,5 +1,8 @@
 #include <string>
 
+#include <boost/thread/mutex.hpp>
+#include <boost/thread/condition_variable.hpp>
+
 #include "core.hpp"
 #include "pubsub_tcp.hpp"
 #include "pubsub_zmq.hpp"
@@ -9,21 +12,29 @@
 using namespace std;
 using namespace ros2;
 
-int main(int argc, char **argv) {
-  int port;
-  if (argc > 2) {
-    ROS_ERROR("usage: simple_sub <pub_port>");
-    ROS_BREAK();
-  } else if (argc == 2) {
-    port = atoi(argv[1]);
-  } else {
-    port = 50000;
+size_t n_received = 0;
+size_t n_msg = 0;
+
+boost::mutex mutex;
+boost::condition_variable cv;
+void callback(const Message &msg) {
+  n_received++;
+  if (n_msg <= n_received) {
+    boost::mutex::scoped_lock lock(mutex);
+    cv.notify_all();
   }
-  string host = "localhost";
+}
+
+int main(int argc, char **argv) {
+  if (argc != 2) {
+    fprintf(stderr, "usage: simple_sub\n");
+    return 1;
+  }
+  n_msg = atoi(argv[1]);
 
   PollManager pm;
-
   Subscription sub;
+  sub.registerCallback(callback);
 
   // tcp
   boost::shared_ptr<TransportTCP> trans_tcp(new TransportTCP(&pm.getPollSet()));
@@ -36,13 +47,25 @@ int main(int argc, char **argv) {
   sub.addSubscription(&sub_zmq);
 
   // Startup tcp + zmq
-  sub_tcp.start(host, port);
+  string host = "localhost";
+  sub_tcp.start(host, 50000);
   sub_zmq.start("tcp://localhost:60000");
 
   pm.start();
-  usleep(1000 * 1000 * 10);
-
+  uint64_t start = usectime();
+  {
+    boost::mutex::scoped_lock lock(mutex);
+    while (n_received < n_msg) {
+      cv.wait(lock);
+    }
+  }
+  uint64_t stop = usectime();
+  uint64_t elapsed = stop - start;
   sub_tcp.shutdown();
   sub_zmq.stop();
   pm.shutdown();
+
+  printf("Messages received: %zu\n", n_received);
+  printf("Elapsed: %zu [us]\n", elapsed);
+  printf("Average latency: %.3f [us]\n", (double) elapsed / n_received);
 }
