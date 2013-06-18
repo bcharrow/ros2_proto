@@ -24,6 +24,11 @@ public:
     queue_.push(msg.Copy());
   }
 
+  virtual const char* protocol() const { return "ZMQROS"; }
+  virtual std::string endpoint() const {
+    return endpoint_;
+  }
+
   void start(const std::string &endpoint) {
     thread_ = boost::thread(&PublishZMQ::run, this);
     endpoint_ = endpoint;
@@ -38,6 +43,10 @@ public:
     // Now we can create the socket
     sock_.reset(new zmq::socket_t(*ctx_, ZMQ_PUB));
     sock_->bind(endpoint_.c_str());
+    char s[80];
+    size_t s_sz = sizeof(s);
+    sock_->getsockopt(ZMQ_LAST_ENDPOINT, s, &s_sz);
+    endpoint_ = s;
 
     char topic[] = "pubsub_zmq";
     zmq::message_t zmqmsg_topic(sizeof(topic) - 1);
@@ -80,6 +89,8 @@ public:
   virtual void onReceive(const MessageCallback &cb) {
     cb_ = cb;
   }
+
+  virtual const char* protocol() const { return "ZMQROS"; }
 
   void start(const std::string &endpoint) {
     endpoint_ = endpoint;

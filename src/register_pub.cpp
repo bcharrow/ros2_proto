@@ -18,7 +18,7 @@ int main(int argc, char **argv) {
   uint64_t sz = atoi(argv[1]);
 
   PollManager pm;
-
+  
   // Message to send
   Message msg(sz);
   uint8_t *bytes = msg.bytes();
@@ -37,18 +37,27 @@ int main(int argc, char **argv) {
   // zmq
   zmq::context_t ctx(1);
   PublishZMQ pub_zmq(&ctx, 100);
-  // pub.registerProtocol(&pub_zmq);
+  pub.registerProtocol(&pub_zmq);
 
+  // Setup services
+  ServiceManager sm(boost::shared_ptr<TransportTCP>(new TransportTCP(&pm.getPollSet())));
+  sm.init(5555);
+
+  TopicManager tm;  
+  tm.init(&sm);
+  tm.addPublication(&pub);
+  
   // Startup tcp + zmq
-  int port = 50000;
+  int port = 0;
   pub_tcp.start(port);
   ROS_INFO("TCP listening on port %i", trans_tcp->getServerPort());
 
-  pub_zmq.start("tcp://*:60000");
+  pub_zmq.start("tcp://127.0.0.1:0");
 
   pm.start();
   while (1) {
     pub.publish(msg);
+    // usleep(1000 * 100);
   }
 
   ROS_INFO("Shutting down");

@@ -41,6 +41,14 @@ public:
     }
   }
 
+  virtual const char* protocol() const { return "TCPROS"; }
+
+  virtual std::string endpoint() const {
+    std::stringstream ss;
+    ss << server_->getServerPort();
+    return ss.str();
+  }
+
   void shutdown() {
     std::list<TransportTCPPtr> local_connections;
     {
@@ -75,7 +83,7 @@ public:
         return;
       }
     }
-    ROS_ERROR("Disconnect from Tranposrt something not in list!");
+    ROS_ERROR("Disconnect from TransportPtr, but not in list!");
   }
 
 private:
@@ -87,7 +95,7 @@ private:
 
 class TCPSubscribe : public SubscribeProtocol {
 public:
-  TCPSubscribe(const TransportTCPPtr &tcp) : tcp_(tcp) {}
+  TCPSubscribe() {}
 
   ~TCPSubscribe() {
     shutdown();
@@ -97,11 +105,17 @@ public:
     cb_ = cb;
   }
 
+  virtual const char* protocol() const { return "TCPROS"; }
+
   void shutdown() {
-    tcp_->close();
+    if (tcp_) {
+      tcp_->close();
+    }
   }
 
-  void start(const std::string host, int port) {
+  void start(const TransportTCPPtr &tcp, const std::string host, int port) {
+    tcp_ = tcp;
+
     if (!tcp_->connect(host, port)) {
       ROS_ERROR("connect()");
       ROS_BREAK();

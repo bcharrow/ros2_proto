@@ -102,7 +102,7 @@ bool TransportTCP::setReuse()
   }
   else
   {
-    ROS_INFO("Set SO_REUSEADDR");
+    ROS_DEBUG("Set SO_REUSEADDR");
   }
   return true;
 }
@@ -749,7 +749,7 @@ std::string TransportTCP::getClientURI()
 
 void TransportTCP::enableMessagePass()
 {
-  boost::mutex::scoped_lock lock(message_mutex_);
+  boost::recursive_mutex::scoped_lock lock(message_mutex_);
   messages_ = true;
   setReadCallback(boost::bind(&TransportTCP::readMessage, this, _1));
   setWriteCallback(boost::bind(&TransportTCP::writeMessage, this, _1));
@@ -757,13 +757,13 @@ void TransportTCP::enableMessagePass()
 
 void TransportTCP::setMsgCallback(const ReadMessageCallback &cb)
 {
-  boost::mutex::scoped_lock lock(message_mutex_);
+  boost::recursive_mutex::scoped_lock lock(message_mutex_);
   readmsg_cb_ = cb;
 }
 
 void TransportTCP::writeMessage(const TransportPtr &trans)
 {
-  boost::mutex::scoped_lock lock(message_mutex_);
+  boost::recursive_mutex::scoped_lock lock(message_mutex_);
   if (send_msgs_.size() == 0)
   {
     ROS_ERROR("Asked to write message, but no messages left");
@@ -797,7 +797,7 @@ void TransportTCP::writeMessage(const TransportPtr &trans)
 
 void TransportTCP::readMessage(const TransportPtr &trans)
 {
-  boost::mutex::scoped_lock lock(message_mutex_);
+  boost::recursive_mutex::scoped_lock lock(message_mutex_);
   if (!messages_)
   {
     ROS_ERROR("readMessage() called, but enableMessagePass() was not");
@@ -857,7 +857,7 @@ void TransportTCP::readMessage(const TransportPtr &trans)
 
 void TransportTCP::sendMessage(const boost::shared_array<uint8_t> &buffer, uint32_t size)
 {
-  boost::mutex::scoped_lock lock(message_mutex_);
+  boost::recursive_mutex::scoped_lock lock(message_mutex_);
   if (!messages_)
   {
     ROS_ERROR("sendMessage() called, but enableMessagePass() was not");

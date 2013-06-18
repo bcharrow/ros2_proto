@@ -27,7 +27,7 @@ void callback(const Message &msg) {
 
 int main(int argc, char **argv) {
   if (argc != 2) {
-    fprintf(stderr, "usage: simple_sub\n");
+    fprintf(stderr, "usage: simple_sub n_msgs\n");
     return 1;
   }
   n_msg = atoi(argv[1]);
@@ -37,18 +37,17 @@ int main(int argc, char **argv) {
   sub.registerCallback(callback);
 
   // tcp
-  boost::shared_ptr<TransportTCP> trans_tcp(new TransportTCP(&pm.getPollSet()));
-  TCPSubscribe sub_tcp(trans_tcp);
-  sub.addSubscription(&sub_tcp);
+  TCPSubscribe sub_tcp;
+  sub.addProtocol(&sub_tcp);
 
   // zmq
   zmq::context_t ctx(1);
   SubscribeZMQ sub_zmq(&ctx);
-  sub.addSubscription(&sub_zmq);
+  sub.addProtocol(&sub_zmq);
 
   // Startup tcp + zmq
   string host = "localhost";
-  sub_tcp.start(host, 50000);
+  sub_tcp.start(boost::shared_ptr<TransportTCP>(new TransportTCP(&pm.getPollSet())), host, 50000);
   sub_zmq.start("tcp://localhost:60000");
 
   pm.start();

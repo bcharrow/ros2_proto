@@ -173,7 +173,7 @@ private:
   void writeMessage(const TransportPtr &trans);
   void readMessage(const TransportPtr &trans);
 
-  boost::mutex message_mutex_; // Guard access to message variables
+  boost::recursive_mutex message_mutex_; // Guard access to message variables
   bool messages_; // True if we're only doing send / recv of messages
   struct Message {
     boost::shared_array<uint8_t> msg;
