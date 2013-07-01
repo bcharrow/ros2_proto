@@ -772,8 +772,18 @@ void TransportTCP::writeMessage(const TransportPtr &trans)
 
   // Send size
   Message *msg = send_msgs_.front();
-  uint32_t left = msg->msg_sz - sent_;
-  int wrote = write(msg->msg.get() + sent_, left);
+  int wrote;
+  if (sent_ < 4)
+  {
+    uint8_t *sz = (uint8_t*)&msg->msg_sz;
+    wrote = write(sz + sent_, 4 - sent_);
+  }
+  else
+  {
+    uint32_t left = msg->msg_sz - sent_ + 4;
+    wrote = write(msg->msg.get() + sent_ - 4, left);
+  }
+
   if (wrote < 0)
   {
     ROS_WARN("Error writing");
@@ -781,9 +791,8 @@ void TransportTCP::writeMessage(const TransportPtr &trans)
     return;
   }
   sent_ += wrote;
-  // ROS_INFO("sent_ = %i", sent_);
 
-  if (sent_ == msg->msg_sz)
+  if (sent_ == msg->msg_sz + 4)
   {
     delete msg;
     send_msgs_.pop_front();
@@ -865,11 +874,8 @@ void TransportTCP::sendMessage(const boost::shared_array<uint8_t> &buffer, uint3
   }
 
   Message *msg = new Message;
-  msg->msg_sz = size + 4;
-  msg->msg = boost::shared_array<uint8_t>(new uint8_t[msg->msg_sz]);
-  std::copy(buffer.get(), buffer.get() + size, msg->msg.get() + 4);
-  *(uint32_t*)msg->msg.get() = size;
-
+  msg->msg_sz = size;
+  msg->msg = buffer;
   if (send_msgs_.empty())
   {
     sent_ = 0;

@@ -18,7 +18,7 @@ int main(int argc, char **argv) {
   uint64_t sz = atoi(argv[1]);
 
   PollManager pm;
-  
+
   // Message to send
   Message msg(sz);
   uint8_t *bytes = msg.bytes();
@@ -43,10 +43,10 @@ int main(int argc, char **argv) {
   ServiceManager sm(boost::shared_ptr<TransportTCP>(new TransportTCP(&pm.getPollSet())));
   sm.init(5555);
 
-  TopicManager tm;  
+  TopicManager tm;
   tm.init(&sm);
   tm.addPublication(&pub);
-  
+
   // Startup tcp + zmq
   int port = 0;
   pub_tcp.start(port);
