@@ -40,7 +40,7 @@ int main(int argc, char **argv) {
   pub.registerProtocol(&pub_zmq);
 
   // Setup services
-  ServiceManager sm(boost::shared_ptr<TransportTCP>(new TransportTCP(&pm.getPollSet())));
+  ServiceManager<ros2_comm::TopicRequest> sm(boost::shared_ptr<TransportTCP>(new TransportTCP(&pm.getPollSet())));
   sm.init(5555);
 
   TopicManager tm;

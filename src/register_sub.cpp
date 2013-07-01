@@ -45,7 +45,6 @@ int main(int argc, char **argv) {
   TopicManager tm;
   ros2_comm::TopicRequest req_rep;
   req_rep.request.topic = "/data";
-  req_rep.request.method = "requestTopic";  
   boost::shared_ptr<TransportTCP> remote_service(new TransportTCP(&pm.getPollSet()));
   remote_service->connect("127.0.0.1", 5555);
   tm.requestTopic(remote_service, &req_rep);

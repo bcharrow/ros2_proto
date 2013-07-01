@@ -163,10 +163,13 @@ protected:
 
 //============================= ServiceManager ==============================//
 
+template <typename M>
 class ServiceManager {
 public:
-  typedef boost::function<void(const ros2_comm::TopicRequest::Request&,
-                               ros2_comm::TopicRequest::Response*)> Callback;
+  typedef typename M::Request Request;
+  typedef typename M::Response Response;
+
+  typedef boost::function<void(const Request&, Response*)> Callback;
 
   ServiceManager(TransportTCPPtr server) : server_(server) {
 
@@ -179,9 +182,9 @@ public:
     }
   }
 
-  void bind(const std::string &name, const Callback &cb) {
+  void bind(const Callback &cb) {
     boost::mutex::scoped_lock lock(mutex_);
-    functions_[name] = cb;
+    cb_ = cb;
   }
 
   void onAccept(const TransportTCPPtr &tcp) {
@@ -199,24 +202,15 @@ public:
     // Deserialize message, lookup relevant method using first frame, call
     // method with next frame
     ROS_INFO("Received a message!");
-    ros2_comm::TopicRequest::Request req;
-    ros2_comm::TopicRequest::Response rep;
+    Request req;
+    Response rep;
 
     ros::serialization::IStream istream(bytes.get(), sz);
-    ros::serialization::Serializer<ros2_comm::TopicRequestRequest>::read(istream, req);
+    ros::serialization::Serializer<Request>::read(istream, req);
 
     {
       boost::mutex::scoped_lock lock(mutex_);
-      std::map<std::string, Callback>::iterator it = functions_.find(req.method);
-
-      if (it == functions_.end()) {
-        ROS_WARN("Request for unknown method: %s", req.topic.c_str());
-        lock.release();
-        tcp->close();
-        return;
-      } else {
-        (it->second)(req, &rep);
-      }
+      cb_(req, &rep);
     }
     uint32_t rep_sz = ros::serialization::serializationLength(rep);
     boost::shared_array<uint8_t> rep_bytes(new uint8_t[rep_sz]);
@@ -243,7 +237,7 @@ private:
   boost::mutex mutex_;
   TransportTCPPtr server_;
   std::list<TransportTCPPtr> connections_;
-  std::map<std::string, Callback> functions_;
+  Callback cb_;
 };
 
 //============================== TopicManager ===============================//
@@ -253,8 +247,9 @@ public:
 
   }
 
-  void init(ServiceManager *sm) {
-    sm->bind("requestTopic", boost::bind(&TopicManager::handleRequestTopic, this, _1, _2));
+  template <typename T>
+  void init(ServiceManager<T> *sm) {
+    sm->bind(boost::bind(&TopicManager::handleRequestTopic, this, _1, _2));
   }
 
   void addPublication(Publication *pub) {
