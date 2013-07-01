@@ -118,6 +118,8 @@ public:
   void sendMessage(const boost::shared_array<uint8_t> &buffer, uint32_t size);
   void readMessage();
 
+  void setFilter(int filter_num);
+
   virtual void enableWrite();
   virtual void disableWrite();
   virtual void enableRead();
@@ -187,9 +189,11 @@ private:
   std::list<Message*> send_msgs_; // Outgoing messages
   uint32_t sent_; // Total bytes sent so far of first message in send_msgs_
   ReadMessageCallback readmsg_cb_;
+
+  int msg_counter_;
+  int filter_;
 };
 
 }
 
 #endif // ROSCPP_TRANSPORT_TCP_H
-

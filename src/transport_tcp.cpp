@@ -61,6 +61,8 @@ TransportTCP::TransportTCP(PollSet* poll_set, int flags)
 , reading_(false)
 , send_msgs_(0)
 , sent_(0)
+, msg_counter_(0)
+, filter_(1)
 {
 
 }
@@ -786,7 +788,6 @@ void TransportTCP::writeMessage(const TransportPtr &trans)
 
   if (wrote < 0)
   {
-    ROS_WARN("Error writing");
     close();
     return;
   }
@@ -831,7 +832,6 @@ void TransportTCP::readMessage(const TransportPtr &trans)
     // ROS_INFO("Asked for %i bytes, read %i", to_read, read_sz);
     if (read_sz < 0)
     {
-      ROS_WARN("Error reading");
       return;
     }
     read_msg_.sz_filled += read_sz;
@@ -852,7 +852,6 @@ void TransportTCP::readMessage(const TransportPtr &trans)
   int32_t read_sz = read(read_msg_.msg.get() + read_msg_.msg_filled, to_read);
   if (read_sz < 0)
   {
-    ROS_WARN("Error reading");
     return;
   }
   read_msg_.msg_filled += read_sz;
@@ -873,6 +872,12 @@ void TransportTCP::sendMessage(const boost::shared_array<uint8_t> &buffer, uint3
     ROS_BREAK();
   }
 
+  msg_counter_++;
+  msg_counter_ = msg_counter_ % filter_;
+  if (msg_counter_ != 0) {
+    return;
+  }
+
   Message *msg = new Message;
   msg->msg_sz = size;
   msg->msg = buffer;
@@ -882,6 +887,13 @@ void TransportTCP::sendMessage(const boost::shared_array<uint8_t> &buffer, uint3
     enableWrite();
   }
   send_msgs_.push_back(msg);
+}
+
+void TransportTCP::setFilter(int filter_num)
+{
+  assert(filter_num > 0);
+  filter_ = filter_num;
+  msg_counter_ = filter_num - 1;
 }
 
 } // namespace ros2
