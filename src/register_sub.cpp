@@ -19,6 +19,7 @@ boost::mutex mutex;
 boost::condition_variable cv;
 void callback(const Message &msg) {
   n_received++;
+  // ROS_INFO("msg.size() = %i", msg.size());
   if (n_msg <= n_received) {
     boost::mutex::scoped_lock lock(mutex);
     cv.notify_all();
@@ -36,7 +37,7 @@ int main(int argc, char **argv) {
   for (int i = 2; i < argc; ++i) {
     preferred_protocols.push_back(argv[i]);
   }
-  
+
   PollManager pm;
   pm.start();
   Subscription sub;
@@ -52,15 +53,20 @@ int main(int argc, char **argv) {
   remote_service->close();
 
   zmq::context_t ctx(1);
-  TCPSubscribe sub_tcp;  
+  ros2_comm::TCPOptions opts;
+  opts.tcp_nodelay = true;
+  opts.compression = ros2_comm::TCPOptions::SNAPPY;
+  opts.filter = 1;
+
+  TCPSubscribe sub_tcp(opts);
   SubscribeZMQ sub_zmq(&ctx);
-      
+
   const char *foo[] = {"foo", "bar", "baz"};
   map<string, string> protos;
   for (int i = 0; i < req_rep.response.protocols.size(); ++i) {
     protos[req_rep.response.protocols[i]] = req_rep.response.endpoints[i];
   }
-      
+
   bool something = false;
   for (int j = 0; j < preferred_protocols.size(); ++j) {
     const string &protocol = preferred_protocols[j];
@@ -74,11 +80,11 @@ int main(int argc, char **argv) {
       ROS_INFO("Using %s", protocol.c_str());
       sub_tcp.start(TransportTCPPtr(new TransportTCP(&pm.getPollSet())), "localhost",
                     atoi(endpoint.c_str()));
-      sub.addProtocol(&sub_tcp); 
+      sub.addProtocol(&sub_tcp);
       something = true;
       break;
     } else if (protocol == sub_zmq.protocol()) {
-      ROS_INFO("Using %s", protocol.c_str());      
+      ROS_INFO("Using %s", protocol.c_str());
       sub.addProtocol(&sub_zmq);
       sub_zmq.start(endpoint.c_str());
       something = true;

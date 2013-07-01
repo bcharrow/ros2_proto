@@ -12,6 +12,7 @@ find_package(PkgConfig REQUIRED)
 pkg_search_module(zmq REQUIRED libzmq)
 
 add_service_files(FILES TopicRequest.srv)
+add_message_files(FILES TCPOptions.msg)
 generate_messages()
 
 catkin_package(
@@ -32,7 +33,7 @@ include_directories(${catkin_INCLUDE_DIRS} ${Boost_INCLUDE_DIRS})
 
 add_library(ros2_comm src/core.cpp src/io.cpp src/poll_set.cpp
   src/poll_manager.cpp src/common.cpp src/transport_tcp.cpp src/header.cpp)
-target_link_libraries(ros2_comm ${catkin_LIBRARIES} ${Boost_LIBRARIES} ${zmq_LIBRARIES})
+target_link_libraries(ros2_comm ${catkin_LIBRARIES} ${Boost_LIBRARIES} ${zmq_LIBRARIES} "snappy")
 
 # Basic pub/sub
 add_executable(simple_sub src/simple_sub.cpp)
