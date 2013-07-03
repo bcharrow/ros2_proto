@@ -2,6 +2,7 @@
 #define SUB_TCP_HPP
 
 #include "core.hpp"
+#include "subscription.hpp"
 #include "transport_tcp.h"
 #include <ros2_comm/TCPOptions.h>
 
@@ -71,7 +72,7 @@ public:
 
   virtual std::string endpoint() const {
     std::stringstream ss;
-    ss << server_->getServerPort();
+    ss << "localhost:" << server_->getServerPort();
     return ss.str();
   }
 
@@ -168,12 +169,13 @@ private:
 
 class TCPSubscribe : public SubscribeProtocol {
 public:
-  TCPSubscribe() {
+  TCPSubscribe(const TransportTCPPtr &tcp) : tcp_(tcp) {
     opts_.tcp_nodelay = false;
     opts_.compression = ros2_comm::TCPOptions::NONE;
   }
 
-  TCPSubscribe(const ros2_comm::TCPOptions &opts) : opts_(opts) {}
+  TCPSubscribe(const TransportTCPPtr &tcp,
+               const ros2_comm::TCPOptions &opts) : tcp_(tcp), opts_(opts) {}
 
   ~TCPSubscribe() {
     shutdown();
@@ -191,9 +193,11 @@ public:
     }
   }
 
-  void start(const TransportTCPPtr &tcp, const std::string host, int port) {
-    tcp_ = tcp;
-
+  void start(const std::string &endpoint) {
+    ROS_INFO("%s", endpoint.c_str());
+    size_t n = endpoint.find(':');
+    std::string host = endpoint.substr(0, n);
+    int port = atoi(endpoint.substr(n+1).c_str());
     if (!tcp_->connect(host, port)) {
       ROS_ERROR("connect()");
       ROS_BREAK();

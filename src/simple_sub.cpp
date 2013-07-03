@@ -37,7 +37,7 @@ int main(int argc, char **argv) {
   sub.registerCallback(callback);
 
   // tcp
-  TCPSubscribe sub_tcp;
+  TCPSubscribe sub_tcp(boost::shared_ptr<TransportTCP>(new TransportTCP(&pm.getPollSet())));
   sub.addProtocol(&sub_tcp);
 
   // zmq
@@ -46,8 +46,7 @@ int main(int argc, char **argv) {
   sub.addProtocol(&sub_zmq);
 
   // Startup tcp + zmq
-  string host = "localhost";
-  sub_tcp.start(boost::shared_ptr<TransportTCP>(new TransportTCP(&pm.getPollSet())), host, 50000);
+  sub_tcp.start("localhost:50000");
   sub_zmq.start("tcp://localhost:60000");
 
   pm.start();
@@ -61,7 +60,7 @@ int main(int argc, char **argv) {
   uint64_t stop = usectime();
   uint64_t elapsed = stop - start;
   sub_tcp.shutdown();
-  sub_zmq.stop();
+  sub_zmq.shutdown();
   pm.shutdown();
 
   printf("Messages received: %zu\n", n_received);

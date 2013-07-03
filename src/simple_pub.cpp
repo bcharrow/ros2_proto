@@ -52,7 +52,7 @@ int main(int argc, char **argv) {
   }
 
   ROS_INFO("Shutting down");
-  pub_zmq.stop();
+  pub_zmq.shutdown();
   pub_tcp.shutdown();
   pm.shutdown();
 }

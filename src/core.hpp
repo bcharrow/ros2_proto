@@ -120,47 +120,6 @@ protected:
   std::string topic_;
 };
 
-//================================ Subscribe ================================//
-
-typedef boost::function<void(const Message&)> MessageCallback;
-
-// Abstract interface for subscribing using a specific protocol (e.g., TCP,
-// UDP, 0MQ pub)
-class SubscribeProtocol {
-public:
-  virtual void onReceive(const MessageCallback &cb) = 0;
-  virtual const char* protocol() const = 0;
-};
-
-// Manage all subscription protocols
-class Subscription {
-public:
-  Subscription() {}
-  ~Subscription() {}
-
-  void addProtocol(SubscribeProtocol *cb) {
-    subs_.push_back(cb);
-    cb->onReceive(boost::bind(&Subscription::msgCallback, this, _1));
-  }
-
-  void msgCallback(const Message &msg) {
-    boost::mutex::scoped_lock lock(callback_mutex_);
-    for (int i = 0; i < cbs_.size(); ++i) {
-      cbs_.at(i)(msg);
-    }
-  }
-
-  void registerCallback(const MessageCallback &cb) {
-    boost::mutex::scoped_lock lock(callback_mutex_);
-    cbs_.push_back(cb);
-  }
-
-protected:
-  boost::mutex callback_mutex_;
-  std::vector<SubscribeProtocol*> subs_;
-  std::vector<MessageCallback> cbs_;
-};
-
 //============================= ServiceManager ==============================//
 
 template <typename M>
@@ -197,8 +156,8 @@ public:
     connections_.push_back(tcp);
   }
 
-  void onReceive(const TransportTCPPtr &tcp, const boost::shared_array<uint8_t> &bytes,
-                 uint32_t sz) {
+  void onReceive(const TransportTCPPtr &tcp,
+                 const boost::shared_array<uint8_t> &bytes, uint32_t sz) {
     // Deserialize message, lookup relevant method using first frame, call
     // method with next frame
     ROS_INFO("Received a message!");
@@ -240,26 +199,17 @@ private:
   Callback cb_;
 };
 
-//============================== TopicManager ===============================//
-class TopicManager {
+template <typename M>
+class ServiceClient {
 public:
-  TopicManager() : req_rep_(NULL), done_(true) {
+  ServiceClient() : req_rep_(NULL), done_(true) {
 
   }
 
-  template <typename T>
-  void init(ServiceManager<T> *sm) {
-    sm->bind(boost::bind(&TopicManager::handleRequestTopic, this, _1, _2));
-  }
-
-  void addPublication(Publication *pub) {
-    publications_[pub->topic()] = pub;
-  }
-
-  void requestTopic(boost::shared_ptr<TransportTCP> server, ros2_comm::TopicRequest *req_rep) {
+  void call(boost::shared_ptr<TransportTCP> server, M *req_rep) {
     server->enableMessagePass();
     server->enableRead();
-    server->setMsgCallback(boost::bind(&TopicManager::onResponse, this, _1, _2));
+    server->setMsgCallback(boost::bind(&ServiceClient::onResponse, this, _1, _2));
 
     uint32_t req_sz = ros::serialization::serializationLength(req_rep->request);
     boost::shared_array<uint8_t> req_bytes(new uint8_t[req_sz]);
@@ -274,8 +224,10 @@ public:
         cv_.wait(lock);
       }
     }
+    req_rep_ = NULL;
   }
 
+private:
   void onResponse(const boost::shared_array<uint8_t> &bytes, uint32_t sz) {
     boost::unique_lock<boost::mutex> lock(mutex_);
     if (done_ != false) {
@@ -287,6 +239,26 @@ public:
                                                                           req_rep_->response);
     done_ = true;
     cv_.notify_all();
+  }
+
+  boost::mutex mutex_;
+  boost::condition_variable cv_;
+  M *req_rep_;
+  bool done_;
+};
+
+//============================== TopicManager ===============================//
+class TopicManager {
+public:
+  TopicManager() { }
+
+  template <typename T>
+  void init(ServiceManager<T> *sm) {
+    sm->bind(boost::bind(&TopicManager::handleRequestTopic, this, _1, _2));
+  }
+
+  void addPublication(Publication *pub) {
+    publications_[pub->topic()] = pub;
   }
 
   void handleRequestTopic(const ros2_comm::TopicRequest::Request &req,
@@ -306,10 +278,6 @@ public:
 
 private:
   std::map<std::string, Publication*> publications_;
-  boost::mutex mutex_;
-  boost::condition_variable cv_;
-  ros2_comm::TopicRequest *req_rep_;
-  bool done_;
 };
 
 } // ros2

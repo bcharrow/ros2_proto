@@ -34,7 +34,7 @@ public:
     endpoint_ = endpoint;
   }
 
-  void stop() {
+  void shutdown() {
     shutdown_ = true;
     thread_.join();
   }
@@ -97,7 +97,7 @@ public:
     thread_ = boost::thread(&SubscribeZMQ::run, this);
   }
 
-  void stop() {
+  virtual void shutdown() {
     shutdown_ = true;
     thread_.join();
   }
