@@ -27,39 +27,29 @@ void callback(const Message &msg) {
 }
 
 int main(int argc, char **argv) {
-  if (argc < 3) {
-    fprintf(stderr, "usage: simple_sub n_msgs <protocols>\n");
+  if (argc != 2) {
+    fprintf(stderr, "usage: simple_sub n_msgs\n");
     return 1;
   }
   n_msg = atoi(argv[1]);
 
-  std::string topic("/data");
-
   PollManager pm;
   pm.start();
 
-  ServiceDiscovery sd(&pm.getPollSet());
+  // StaticRegistration static_res;
+  // static_res.addPub("/data", "tcpros://127.0.0.1:" + string(argv[2]));
+  MasterRegistration master_res(NodeAddress("127.0.0.1", 11311), &pm.getPollSet());
+  RegistrationProtocol *reg = &master_res;
 
-  zmq::context_t ctx(1);
+  TopicManager tm(reg);
 
-  boost::scoped_ptr<SubscribeProtocol> sub_proto;
-  if (argv[2] == string("TCPROS")) {
-    ros2_comm::TCPOptions opts;
-    opts.tcp_nodelay = true;
-    opts.compression = ros2_comm::TCPOptions::SNAPPY;
-    opts.filter = 1;
-    boost::shared_ptr<TransportTCP> trans;
-    trans.reset(new TransportTCP(&pm.getPollSet()));
-    sub_proto.reset(new TCPSubscribe(trans, opts));
-  } else if (argv[2] == string("ZMQROS")) {
-    sub_proto.reset(new SubscribeZMQ(&ctx));
-  } else {
-    ROS_ERROR("Unknown protocol: %s", argv[2]);
-    ROS_BREAK();
-  }
+  TCPSubFactory sub_factory_tcp(&pm.getPollSet());
+  tm.addSubscribeTransport(&sub_factory_tcp);
 
-  ComposeSubscription sub(topic, &sd, sub_proto.get(), callback);
-  sub.start();
+  ZMQSubFactory sub_factory_zmq;
+  tm.addSubscribeTransport(&sub_factory_zmq);
+
+  tm.subscribe("/data", callback);
 
   uint64_t start = usectime();
   {
@@ -70,8 +60,9 @@ int main(int argc, char **argv) {
   }
   uint64_t stop = usectime();
   uint64_t elapsed = stop - start;
-  sub_proto->shutdown();
+  tm.shutdown();
   pm.shutdown();
+
   printf("Messages received: %zu\n", n_received);
   printf("Elapsed: %zu [us]\n", elapsed);
   printf("Average latency: %.3f [us]\n", (double) elapsed / n_received);

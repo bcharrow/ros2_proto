@@ -12,7 +12,7 @@
 
 namespace ros2 {
 
-class PublishZMQ : public PublishProtocol {
+class PublishZMQ : public PublishTransport {
 public:
   PublishZMQ(zmq::context_t *ctx, size_t queue_size)
     : shutdown_(false), sock_(NULL), ctx_(ctx), queue_(queue_size) {
@@ -24,7 +24,7 @@ public:
     queue_.push(msg.Copy());
   }
 
-  virtual const char* protocol() const { return "ZMQROS"; }
+  virtual const char* protocol() const { return "zmqros"; }
   virtual std::string endpoint() const {
     return endpoint_;
   }
@@ -34,7 +34,8 @@ public:
     endpoint_ = endpoint;
   }
 
-  void shutdown() {
+  virtual void shutdown() {
+    ROS_ERROR("Shutting down zmq!");
     shutdown_ = true;
     thread_.join();
   }
@@ -82,7 +83,21 @@ private:
   zmq::context_t *ctx_;
 };
 
-class SubscribeZMQ : public SubscribeProtocol {
+class ZMQPubFactory : public PublishTransportFactory {
+public:
+  ZMQPubFactory() : ctx_(1) {}
+
+  PublishZMQ* CreatePubTransport() {
+    PublishZMQ *pub = new PublishZMQ(&ctx_, 100);
+    pub->start("tcp://127.0.0.1:0");
+    return pub;
+  }
+
+private:
+  zmq::context_t ctx_;
+};
+
+class SubscribeZMQ : public SubscribeTransport {
 public:
   SubscribeZMQ(zmq::context_t *ctx) : ctx_(ctx), shutdown_(false) {}
 
@@ -90,7 +105,7 @@ public:
     cb_ = cb;
   }
 
-  virtual const char* protocol() const { return "ZMQROS"; }
+  virtual const char* protocol() const { return "zmqros"; }
 
   void start(const std::string &endpoint) {
     endpoint_ = endpoint;
@@ -170,6 +185,20 @@ private:
   std::string endpoint_;
   boost::thread thread_;
   volatile bool shutdown_;
+};
+
+
+class ZMQSubFactory : public SubscribeTransportFactory {
+public:
+  ZMQSubFactory() : ctx_(1) {}
+
+  SubscribeZMQ* CreateSubTransport() {
+    SubscribeZMQ *sub = new SubscribeZMQ(&ctx_);
+    return sub;
+  }
+
+private:
+  zmq::context_t ctx_;
 };
 
 }

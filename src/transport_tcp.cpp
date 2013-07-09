@@ -773,7 +773,7 @@ void TransportTCP::writeMessage(const TransportPtr &trans)
   }
 
   // Send size
-  Message *msg = send_msgs_.front();
+  boost::shared_ptr<Message> msg = send_msgs_.front();
   int wrote;
   if (sent_ < 4)
   {
@@ -795,7 +795,6 @@ void TransportTCP::writeMessage(const TransportPtr &trans)
 
   if (sent_ == msg->msg_sz + 4)
   {
-    delete msg;
     send_msgs_.pop_front();
     sent_ = 0;
     if (send_msgs_.size() == 0)
@@ -878,7 +877,7 @@ void TransportTCP::sendMessage(const boost::shared_array<uint8_t> &buffer, uint3
     return;
   }
 
-  Message *msg = new Message;
+  boost::shared_ptr<Message> msg(new Message);
   msg->msg_sz = size;
   msg->msg = buffer;
   if (send_msgs_.empty())

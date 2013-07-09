@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 2.8.3)
 project(ros2_comm)
 
-set(CMAKE_BUILD_TYPE RelWithDebInfo)
+set(CMAKE_BUILD_TYPE Debug)
 
 find_package(catkin REQUIRED COMPONENTS cpp_common rosconsole roscpp_serialization message_generation)
 
@@ -36,10 +36,10 @@ add_library(ros2_comm src/core.cpp src/io.cpp src/poll_set.cpp
 target_link_libraries(ros2_comm ${catkin_LIBRARIES} ${Boost_LIBRARIES} ${zmq_LIBRARIES} "snappy")
 
 # Basic pub/sub
-add_executable(simple_sub src/simple_sub.cpp)
-add_executable(simple_pub src/simple_pub.cpp)
-target_link_libraries(simple_sub ros2_comm)
-target_link_libraries(simple_pub ros2_comm)
+# add_executable(simple_sub src/simple_sub.cpp)
+# add_executable(simple_pub src/simple_pub.cpp)
+# target_link_libraries(simple_sub ros2_comm)
+# target_link_libraries(simple_pub ros2_comm)
 
 # Pub/sub with registration
 add_executable(register_sub src/register_sub.cpp)

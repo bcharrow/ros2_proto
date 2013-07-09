@@ -1,4 +1,3 @@
 string topic
 ---
-string[] protocols
-string[] endpoints
+string[] uris

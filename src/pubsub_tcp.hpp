@@ -14,11 +14,13 @@
 
 namespace ros2 {
 
-class TCPPublish : public PublishProtocol {
+//=================================== Pub ===================================//
+
+class TCPPublish : public PublishTransport {
 public:
   TCPPublish(TransportTCPPtr server) : server_(server) {}
 
-  ~TCPPublish() {
+  virtual ~TCPPublish() {
     shutdown();
   }
 
@@ -68,7 +70,7 @@ public:
     }
   }
 
-  virtual const char* protocol() const { return "TCPROS"; }
+  virtual const char* protocol() const { return "tcpros"; }
 
   virtual std::string endpoint() const {
     std::stringstream ss;
@@ -167,7 +169,29 @@ private:
   std::list<Connection> connections_;
 };
 
-class TCPSubscribe : public SubscribeProtocol {
+
+class TCPPubFactory : public PublishTransportFactory {
+public:
+  TCPPubFactory(PollSet *ps) : ps_(ps) {
+
+  }
+
+  virtual TCPPublish* CreatePubTransport() {
+    boost::shared_ptr<TransportTCP> trans_tcp(new TransportTCP(ps_));
+    TCPPublish *tcp = new TCPPublish(trans_tcp);
+    int port = 0;
+    tcp->start(port);
+    ROS_INFO("TCP listening on port %i", trans_tcp->getServerPort());
+    return tcp;
+  }
+
+private:
+  PollSet *ps_;
+};
+
+//=================================== Sub ===================================//
+
+class TCPSubscribe : public SubscribeTransport {
 public:
   TCPSubscribe(const TransportTCPPtr &tcp) : tcp_(tcp) {
     opts_.tcp_nodelay = false;
@@ -185,7 +209,7 @@ public:
     cb_ = cb;
   }
 
-  virtual const char* protocol() const { return "TCPROS"; }
+  virtual const char* protocol() const { return "tcpros"; }
 
   void shutdown() {
     if (tcp_) {
@@ -250,6 +274,25 @@ protected:
   TransportTCPPtr tcp_;
   MessageCallback cb_;
   ros2_comm::TCPOptions opts_;
+};
+
+class TCPSubFactory : public SubscribeTransportFactory {
+public:
+  TCPSubFactory(PollSet *ps) : ps_(ps) {
+
+  }
+
+  virtual TCPSubscribe* CreateSubTransport() {
+    ros2_comm::TCPOptions opts;
+    opts.tcp_nodelay = true;
+    opts.compression = ros2_comm::TCPOptions::NONE;
+    opts.filter = 1;
+    boost::shared_ptr<TransportTCP> trans_tcp(new TransportTCP(ps_));
+    return new TCPSubscribe(trans_tcp, opts);
+  }
+
+private:
+  PollSet *ps_;
 };
 
 }

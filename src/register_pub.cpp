@@ -19,6 +19,21 @@ int main(int argc, char **argv) {
 
   PollManager pm;
 
+  StaticRegistration static_res;
+  MasterRegistration master_res(NodeAddress("127.0.0.1", 11311), &pm.getPollSet());
+  master_res.init(5555);
+
+  RegistrationProtocol *reg = &master_res;
+
+  TopicManager tm(reg);
+
+  // tcp
+  TCPPubFactory tcp_pub_factory(&pm.getPollSet());
+  tm.addPublishTransport(&tcp_pub_factory);
+  // ZMQ
+  ZMQPubFactory zmq_pub_factory;
+  tm.addPublishTransport(&zmq_pub_factory);
+
   // Message to send
   Message msg(sz);
   uint8_t *bytes = msg.bytes();
@@ -26,42 +41,11 @@ int main(int argc, char **argv) {
     bytes[i] = 0;
   }
 
-  // Publisher
-  Publication pub("/data");
-
-  // Tcp
-  boost::shared_ptr<TransportTCP> trans_tcp(new TransportTCP(&pm.getPollSet()));
-  TCPPublish pub_tcp(trans_tcp);
-  pub.registerProtocol(&pub_tcp);
-
-  // zmq
-  zmq::context_t ctx(1);
-  PublishZMQ pub_zmq(&ctx, 100);
-  pub.registerProtocol(&pub_zmq);
-
-  // Setup services
-  ServiceManager<ros2_comm::TopicRequest> sm(boost::shared_ptr<TransportTCP>(new TransportTCP(&pm.getPollSet())));
-  sm.init(5555);
-
-  TopicManager tm;
-  tm.init(&sm);
-  tm.addPublication(&pub);
-
-  // Startup tcp + zmq
-  int port = 0;
-  pub_tcp.start(port);
-  ROS_INFO("TCP listening on port %i", trans_tcp->getServerPort());
-
-  pub_zmq.start("tcp://127.0.0.1:0");
-
   pm.start();
   while (1) {
-    pub.publish(msg);
-    // usleep(1000 * 100);
+    tm.publish("/data", msg);
   }
 
   ROS_INFO("Shutting down");
-  pub_zmq.shutdown();
-  pub_tcp.shutdown();
   pm.shutdown();
 }

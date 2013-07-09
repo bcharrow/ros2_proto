@@ -84,42 +84,6 @@ private:
   size_t max_size_;
 };
 
-//================================= Publish =================================//
-
-// Abstract interface for publishing using a specific protocol (e.g., TCP, UDP,
-// 0MQ pub)
-class PublishProtocol {
-public:
-  virtual void publish(const Message &msg) = 0;
-  virtual const char* protocol() const = 0;
-  virtual std::string endpoint() const = 0;
-};
-
-// Interface between user facing publisher and various comm protocols
-class Publication {
-public:
-  Publication(const std::string &topic) : topic_(topic) {}
-
-  void publish(const Message &msg) {
-    for (int i = 0; i < protos_.size(); ++i) {
-      protos_.at(i)->publish(msg);
-    }
-  }
-
-  void registerProtocol(PublishProtocol *proto) {
-    protos_.push_back(proto);
-  }
-
-  typedef std::vector<PublishProtocol*>::const_iterator const_iterator;
-  const_iterator begin() const { return protos_.begin(); }
-  const_iterator end() const { return protos_.end(); }
-  const std::string& topic() const { return topic_; }
-
-protected:
-  std::vector<PublishProtocol*> protos_;
-  std::string topic_;
-};
-
 //============================= ServiceManager ==============================//
 
 template <typename M>
@@ -132,6 +96,10 @@ public:
 
   ServiceManager(TransportTCPPtr server) : server_(server) {
 
+  }
+
+  ~ServiceManager() {
+    server_->close();
   }
 
   void init(int port) {
@@ -158,8 +126,6 @@ public:
 
   void onReceive(const TransportTCPPtr &tcp,
                  const boost::shared_array<uint8_t> &bytes, uint32_t sz) {
-    // Deserialize message, lookup relevant method using first frame, call
-    // method with next frame
     ROS_INFO("Received a message!");
     Request req;
     Response rep;
@@ -245,39 +211,6 @@ private:
   boost::condition_variable cv_;
   M *req_rep_;
   bool done_;
-};
-
-//============================== TopicManager ===============================//
-class TopicManager {
-public:
-  TopicManager() { }
-
-  template <typename T>
-  void init(ServiceManager<T> *sm) {
-    sm->bind(boost::bind(&TopicManager::handleRequestTopic, this, _1, _2));
-  }
-
-  void addPublication(Publication *pub) {
-    publications_[pub->topic()] = pub;
-  }
-
-  void handleRequestTopic(const ros2_comm::TopicRequest::Request &req,
-                          ros2_comm::TopicRequest::Response *rep) {
-    ROS_INFO_STREAM("Got a request:\n" << req);
-    std::map<std::string, Publication*>::const_iterator it = publications_.find(req.topic);
-    if (it == publications_.end()) {
-      ROS_WARN("No publication found for topic '%s'", req.topic.c_str());
-    } else {
-      Publication *pub = it->second;
-      for (Publication::const_iterator it = pub->begin(); it != pub->end(); ++it) {
-        rep->protocols.push_back((*it)->protocol());
-        rep->endpoints.push_back((*it)->endpoint());
-      }
-    }
-  }
-
-private:
-  std::map<std::string, Publication*> publications_;
 };
 
 } // ros2

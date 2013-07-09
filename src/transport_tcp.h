@@ -186,7 +186,7 @@ private:
   };
   bool reading_;  // True if currently reading a message from socket
   Message read_msg_; // Message currently being read
-  std::list<Message*> send_msgs_; // Outgoing messages
+  std::list<boost::shared_ptr<Message> > send_msgs_; // Outgoing messages
   uint32_t sent_; // Total bytes sent so far of first message in send_msgs_
   ReadMessageCallback readmsg_cb_;
 
