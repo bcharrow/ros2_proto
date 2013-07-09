@@ -102,6 +102,10 @@ public:
     server_->close();
   }
 
+  const TransportTCP& socket() {
+    return *server_;
+  }
+
   void init(int port) {
     if (!server_->listen(port, 5, boost::bind(&ServiceManager::onAccept, this, _1))) {
       ROS_ERROR("Failed to listen");
@@ -119,13 +123,20 @@ public:
     ROS_INFO("Got a connection from %s", tcp->getClientURI().c_str());
     tcp->enableMessagePass();
     tcp->enableRead();
-    tcp->setMsgCallback(boost::bind(&ServiceManager::onReceive, this, tcp, _1, _2));
+    tcp->setMsgCallback(boost::bind(&ServiceManager::onReceive, this, tcp, _1));
     tcp->setDisconnectCallback(boost::bind(&ServiceManager::onDisconnect, this, _1));
     connections_.push_back(tcp);
   }
 
   void onReceive(const TransportTCPPtr &tcp,
-                 const boost::shared_array<uint8_t> &bytes, uint32_t sz) {
+                 const std::vector<Frame> &frames) {
+    if (frames.size() != 1) {
+      ROS_ERROR("Got %zu frames; expected 1", frames.size());
+      ROS_BREAK();
+    }
+    const boost::shared_array<uint8_t> &bytes = frames[0].data;
+    uint32_t sz = frames[0].size;
+
     ROS_INFO("Received a message!");
     Request req;
     Response rep;
@@ -175,7 +186,7 @@ public:
   void call(boost::shared_ptr<TransportTCP> server, M *req_rep) {
     server->enableMessagePass();
     server->enableRead();
-    server->setMsgCallback(boost::bind(&ServiceClient::onResponse, this, _1, _2));
+    server->setMsgCallback(boost::bind(&ServiceClient::onResponse, this, _1));
 
     uint32_t req_sz = ros::serialization::serializationLength(req_rep->request);
     boost::shared_array<uint8_t> req_bytes(new uint8_t[req_sz]);
@@ -194,15 +205,22 @@ public:
   }
 
 private:
-  void onResponse(const boost::shared_array<uint8_t> &bytes, uint32_t sz) {
+  void onResponse(const std::vector<Frame> &frames) {
     boost::unique_lock<boost::mutex> lock(mutex_);
+    if (frames.size() != 1) {
+      ROS_ERROR("Got %zu frames; expected 1", frames.size());
+      ROS_BREAK();
+    }
+    const boost::shared_array<uint8_t> &bytes = frames[0].data;
+    uint32_t sz = frames[0].size;
+
+
     if (done_ != false) {
       ROS_ERROR("done_ is not false; unexpected request?");
       ROS_BREAK();
     }
     ros::serialization::IStream istream(bytes.get(), sz);
-    ros::serialization::Serializer<ros2_comm::TopicRequestResponse>::read(istream,
-                                                                          req_rep_->response);
+    ros::serialization::Serializer<typename M::Response>::read(istream, req_rep_->response);
     done_ = true;
     cv_.notify_all();
   }

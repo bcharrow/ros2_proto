@@ -39,6 +39,8 @@ int main(int argc, char **argv) {
   // StaticRegistration static_res;
   // static_res.addPub("/data", "tcpros://127.0.0.1:" + string(argv[2]));
   MasterRegistration master_res(NodeAddress("127.0.0.1", 11311), &pm.getPollSet());
+  master_res.init(0);
+
   RegistrationProtocol *reg = &master_res;
 
   TopicManager tm(reg);

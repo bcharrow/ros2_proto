@@ -4,6 +4,11 @@
 #include "core.hpp"
 #include <boost/scoped_ptr.hpp>
 
+#include <ros2_comm/RegisterSubscription.h>
+#include <ros2_comm/UnregisterSubscription.h>
+#include <ros2_comm/RegisterPublication.h>
+#include <ros2_comm/UnregisterPublication.h>
+
 namespace ros2 {
 
 //============================== Registration ===============================//
@@ -291,14 +296,14 @@ private:
 
 class NodeAddress {
 public:
-  NodeAddress(const std::string &hostname, int port)
-    : hostname_(hostname), port_(port) {}
+  NodeAddress(const std::string &addr, int port)
+    : addr_(addr), port_(port) {}
 
-  const std::string& hostname() const { return hostname_; }
+  const std::string& addr() const { return addr_; }
   int port() const { return port_; }
 
 private:
-  std::string hostname_;
+  std::string addr_;
   int port_;
 };
 
@@ -311,13 +316,22 @@ public:
 
   virtual void registerSubscription(const std::string &topic,
                                     const SubscriptionCallback &callback) {
-    std::vector<std::string> publisher_uris;
-    findPublishers(topic, &publisher_uris);
-    contactPublishers(topic, publisher_uris, callback);
+    // Contact master to get publishers
+    ros2_comm::RegisterSubscription reg_sub;
+    reg_sub.request.topic = topic;
+    reg_sub.request.node_uri = myURI();
+    // callMaster(&reg_sub);
+    reg_sub.response.publisher_uris.push_back("127.0.0.1:5555");
+    // Contact publishers to get endpoints
+    contactPublishers(topic, reg_sub.response.publisher_uris, callback);
   }
 
   virtual bool unregisterSubscription(const std::string &topic) {
     ROS_INFO("Unregistering subscripton on %s", topic.c_str());
+    ros2_comm::UnregisterSubscription unreg_sub;
+    unreg_sub.request.topic = topic;
+    unreg_sub.request.node_uri = myURI();
+    // callMaster(&unreg_sub);
     return true;
   }
 
@@ -333,6 +347,7 @@ public:
   void init(int port) {
     service_.reset(new ServiceManager<ros2_comm::TopicRequest>(TransportTCPPtr(new TransportTCP(ps_))));
     service_->init(port);
+
     service_->bind(boost::bind(&MasterRegistration::handleRequestTopic, this, _1, _2));
   }
 
@@ -346,10 +361,20 @@ public:
     tm_ = tm;
   }
 
+  std::string myURI() {
+    char s[80];
+    sprintf(s, "127.0.0.1:%i", service_->socket().getServerPort());
+    return std::string(s);
+  }
+
 private:
-  void findPublishers(const std::string &topic, std::vector<std::string> *uris) {
-    // hardcoded node address; TODO: master resolution
-    uris->push_back("127.0.0.1:5555");
+  template <typename M>
+  void callMaster(M *req_rep) {
+    ServiceClient<M> sc;
+    TransportTCPPtr tcp(new TransportTCP(ps_));
+    tcp->connect(master_.addr(), master_.port());
+    sc.call(tcp, req_rep);
+    tcp->close();
   }
 
   void contactPublishers(const std::string &topic,
@@ -372,7 +397,6 @@ private:
       tcp->close();
     }
   }
-
 
   NodeAddress master_;
   PollSet *ps_;

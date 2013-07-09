@@ -11,7 +11,8 @@ find_package(Boost REQUIRED COMPONENTS system signals)
 find_package(PkgConfig REQUIRED)
 pkg_search_module(zmq REQUIRED libzmq)
 
-add_service_files(FILES TopicRequest.srv)
+add_service_files(FILES TopicRequest.srv RegisterSubscription.srv 
+  RegisterPublication.srv UnregisterSubscription.srv UnregisterPublication.srv)
 add_message_files(FILES TCPOptions.msg)
 generate_messages()
 

@@ -54,6 +54,11 @@ typedef boost::shared_ptr<TransportTCP> TransportTCPPtr;
 
 class PollSet;
 
+struct Frame {
+  boost::shared_array<uint8_t> data;
+  uint32_t size;
+};
+
 /**
  * \brief TCPROS transport
  */
@@ -86,7 +91,7 @@ public:
   std::string getClientURI();
 
   typedef boost::function<void(const TransportTCPPtr&)> AcceptCallback;
-  typedef boost::function<void(const boost::shared_array<uint8_t>&, uint32_t)> ReadMessageCallback;
+  typedef boost::function<void(const std::vector<Frame>&)> ReadMessageCallback;
   /**
    * \brief Start a server socket and listen on a port
    * \param port The port to listen on
@@ -101,7 +106,7 @@ public:
   /**
    * \brief Returns the port this transport is listening on
    */
-  int getServerPort() { return server_port_; }
+  int getServerPort() const { return server_port_; }
 
   void setNoDelay(bool nodelay);
   void setKeepAlive(bool use, uint32_t idle, uint32_t interval, uint32_t count);
@@ -116,6 +121,7 @@ public:
   void enableMessagePass();
   void setMsgCallback(const ReadMessageCallback &read_msg_cb);
   void sendMessage(const boost::shared_array<uint8_t> &buffer, uint32_t size);
+  void sendFrames(const std::vector<Frame> &frames);
   void readMessage();
 
   void setFilter(int filter_num);
@@ -172,26 +178,31 @@ private:
   std::string connected_host_;
   int connected_port_;
 
-  void writeMessage(const TransportPtr &trans);
-  void readMessage(const TransportPtr &trans);
-
   boost::recursive_mutex message_mutex_; // Guard access to message variables
   bool messages_; // True if we're only doing send / recv of messages
   struct Message {
-    boost::shared_array<uint8_t> msg;
-    uint32_t msg_filled; // Amount read
-    uint32_t msg_sz;
-    uint32_t sz_filled;
-    uint8_t sz_bytes[4];
+    std::vector<Frame> frames;
+    uint32_t numframes;
+    uint32_t numframes_filled; // Amount of nframes size processed
+
+    uint32_t frame_ind; // index of frame that's being processed
+    // For current frame:
+    uint32_t frame_filled; // Amount of frame data processed
+    uint32_t frame_sz;  // Size of frame data in bytes
+    uint32_t frame_sz_filled; // Amount of frame size processed
   };
   bool reading_;  // True if currently reading a message from socket
   Message read_msg_; // Message currently being read
   std::list<boost::shared_ptr<Message> > send_msgs_; // Outgoing messages
-  uint32_t sent_; // Total bytes sent so far of first message in send_msgs_
   ReadMessageCallback readmsg_cb_;
 
   int msg_counter_;
   int filter_;
+
+  void writeMessage(const TransportPtr &trans);
+  void writeFrame(boost::shared_ptr<Message> msg);
+  void readMessage(const TransportPtr &trans);
+  void readFrame();
 };
 
 }

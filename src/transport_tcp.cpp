@@ -60,7 +60,6 @@ TransportTCP::TransportTCP(PollSet* poll_set, int flags)
 , messages_(false)
 , reading_(false)
 , send_msgs_(0)
-, sent_(0)
 , msg_counter_(0)
 , filter_(1)
 {
@@ -772,34 +771,88 @@ void TransportTCP::writeMessage(const TransportPtr &trans)
     ROS_BREAK();
   }
 
-  // Send size
   boost::shared_ptr<Message> msg = send_msgs_.front();
   int wrote;
-  if (sent_ < 4)
+  if (msg->numframes_filled < 4)
   {
-    uint8_t *sz = (uint8_t*)&msg->msg_sz;
-    wrote = write(sz + sent_, 4 - sent_);
+    // Send number of frames
+    // ROS_INFO("Sending #frames = %i", msg->numframes);
+    uint8_t *sz = (uint8_t*)&msg->numframes;
+    wrote = write(sz + msg->numframes_filled, 4 - msg->numframes_filled);
+    if (wrote >= 0)
+    {
+      msg->numframes_filled += wrote;
+    }
+    else
+    {
+      close();
+      return;
+    }
   }
   else
   {
-    uint32_t left = msg->msg_sz - sent_ + 4;
-    wrote = write(msg->msg.get() + sent_ - 4, left);
+    writeFrame(msg);
   }
+}
 
-  if (wrote < 0)
+void TransportTCP::writeFrame(boost::shared_ptr<Message> msg)
+{
+  Frame &frame = msg->frames.at(msg->frame_ind);
+  if (msg->frame_sz_filled < 4)
   {
-    close();
-    return;
-  }
-  sent_ += wrote;
-
-  if (sent_ == msg->msg_sz + 4)
-  {
-    send_msgs_.pop_front();
-    sent_ = 0;
-    if (send_msgs_.size() == 0)
+    // send frame size
+    // ROS_INFO("Sending frame %i size = %i", msg->frame_ind, msg->frame_sz);
+    uint8_t *sz = (uint8_t*)&msg->frame_sz;
+    uint32_t left = 4 - msg->frame_sz_filled;
+    int32_t wrote = write(sz + msg->frame_sz_filled, left);
+    if (wrote >= 0)
     {
-      disableWrite();
+      msg->frame_sz_filled += wrote;
+    }
+    else
+    {
+      close();
+      return;
+    }
+  }
+  else
+  {
+    // Send frame payload
+    // ROS_INFO("Sending frame %i payload %i/%i sent",
+    //          msg->frame_ind, msg->frame_filled, frame.size);
+    uint32_t left = frame.size - msg->frame_filled;
+    uint32_t wrote = write(frame.data.get() + msg->frame_filled, left);
+    if (wrote >= 0)
+    {
+      msg->frame_filled += wrote;
+    }
+    else
+    {
+      close();
+      return;
+    }
+
+    // Check if frame and message is done
+    if (msg->frame_filled == frame.size)
+    {
+      // ROS_INFO("Finished frame %i", msg->frame_ind);
+
+      msg->frame_ind++;;
+      if (msg->frame_ind < msg->frames.size())
+      {
+        msg->frame_filled = 0;
+        msg->frame_sz = msg->frames.at(0).size;
+        msg->frame_sz_filled = 0;
+      }
+      else
+      {
+        // ROS_INFO("Finished sending message");
+        send_msgs_.pop_front();
+        if (send_msgs_.size() == 0)
+        {
+          disableWrite();
+        }
+      }
     }
   }
 }
@@ -816,58 +869,91 @@ void TransportTCP::readMessage(const TransportPtr &trans)
   if (!reading_)
   {
     // ROS_INFO("Starting to read a message");
-    read_msg_.msg.reset();
-    read_msg_.msg_filled = 0;
-    read_msg_.sz_filled = 0;
-    read_msg_.msg_sz = 0;
+    read_msg_.frames.resize(0);
+    read_msg_.numframes_filled = 0;
+    read_msg_.frame_ind = 0;
+    read_msg_.frame_filled = 0;
+    read_msg_.frame_sz_filled = 0;
     reading_ = true;
   }
 
   // Read message length
-  if (read_msg_.sz_filled != 4)
+  if (read_msg_.numframes_filled < 4)
   {
-    uint32_t to_read = 4 - read_msg_.sz_filled;
-    int32_t read_sz = read(read_msg_.sz_bytes + read_msg_.sz_filled, to_read);
-    // ROS_INFO("Asked for %i bytes, read %i", to_read, read_sz);
+    // ROS_INFO("Reading number of frames");
+
+    uint32_t to_read = 4 - read_msg_.numframes_filled;
+    int32_t read_sz = read(((uint8_t*)&read_msg_.numframes) + read_msg_.numframes_filled,
+                           to_read);
     if (read_sz < 0)
     {
       return;
     }
-    read_msg_.sz_filled += read_sz;
-    if (read_msg_.sz_filled == 4)
+    read_msg_.numframes_filled += read_sz;
+    if (read_msg_.numframes_filled == 4)
     {
-      read_msg_.msg_sz = *reinterpret_cast<uint32_t*>(read_msg_.sz_bytes);
-      read_msg_.msg.reset(new uint8_t[read_msg_.msg_sz]);
-      // ROS_INFO("Message size is: %u", read_msg_.msg_sz);
-    }
-    else
-    {
-      return;
+      // ROS_INFO("There are %i frames", read_msg_.numframes);
+      read_msg_.frames.resize(read_msg_.numframes);
     }
   }
-
-  // Read remaining bytes of message
-  uint32_t to_read = read_msg_.msg_sz - read_msg_.msg_filled;
-  int32_t read_sz = read(read_msg_.msg.get() + read_msg_.msg_filled, to_read);
-  if (read_sz < 0)
+  else
   {
-    return;
-  }
-  read_msg_.msg_filled += read_sz;
-
-  if (read_msg_.msg_filled == read_msg_.msg_sz)
-  {
-    readmsg_cb_(read_msg_.msg, read_msg_.msg_sz);
-    reading_ = false;
+    readFrame();
   }
 }
 
-void TransportTCP::sendMessage(const boost::shared_array<uint8_t> &buffer, uint32_t size)
+void TransportTCP::readFrame()
+{
+  Frame &frame = read_msg_.frames.at(read_msg_.frame_ind);
+  if (read_msg_.frame_sz_filled < 4)
+  {
+    // Read frame size
+    // ROS_INFO("Reading frame %i size", read_msg_.frame_ind);
+    uint32_t to_read = 4 - read_msg_.frame_sz_filled;
+    int32_t read_sz = read(((uint8_t*)&frame.size) + read_msg_.frame_sz_filled,
+                            to_read);
+    if (read_sz < 0)
+    {
+      return;
+    }
+    read_msg_.frame_sz_filled += read_sz;
+    if (read_msg_.frame_sz_filled == 4)
+    {
+      // ROS_INFO("Frame %i has %i bytes", read_msg_.frame_ind, frame.size);
+      frame.data.reset(new uint8_t[frame.size]);
+    }
+  }
+  else
+  {
+    // Read frame
+    uint32_t to_read = frame.size - read_msg_.frame_filled;
+    int32_t read_sz = read(frame.data.get() + read_msg_.frame_filled,
+                           to_read);
+    if (read_sz < 0)
+    {
+      return;
+    }
+    read_msg_.frame_filled += read_sz;
+    // ROS_INFO("Got %i/%i bytes for frame %i",
+    //          read_msg_.frame_filled, frame.size, read_msg_.frame_ind);
+    if (read_msg_.frame_filled == frame.size)
+    {
+      read_msg_.frame_ind++;
+      if (read_msg_.frame_ind == read_msg_.frames.size())
+      {
+        readmsg_cb_(read_msg_.frames);
+        reading_ = false;
+      }
+    }
+  }
+}
+
+void TransportTCP::sendFrames(const std::vector<Frame> &frames)
 {
   boost::recursive_mutex::scoped_lock lock(message_mutex_);
   if (!messages_)
   {
-    ROS_ERROR("sendMessage() called, but enableMessagePass() was not");
+    ROS_ERROR("sendFrames() called, but enableMessagePass() was not");
     ROS_BREAK();
   }
 
@@ -878,14 +964,29 @@ void TransportTCP::sendMessage(const boost::shared_array<uint8_t> &buffer, uint3
   }
 
   boost::shared_ptr<Message> msg(new Message);
-  msg->msg_sz = size;
-  msg->msg = buffer;
+  msg->frames = frames;
+  msg->numframes = frames.size();
+  msg->numframes_filled = 0;
+  msg->frame_ind = 0;
+  msg->frame_filled = 0;
+  msg->frame_sz = msg->frames.at(0).size;
+  msg->frame_sz_filled = 0;
+
   if (send_msgs_.empty())
   {
-    sent_ = 0;
     enableWrite();
   }
   send_msgs_.push_back(msg);
+}
+
+void TransportTCP::sendMessage(const boost::shared_array<uint8_t> &buffer, uint32_t size)
+{
+  Frame f;
+  f.data = buffer;
+  f.size = size;
+  std::vector<Frame> frames;
+  frames.push_back(f);
+  sendFrames(frames);
 }
 
 void TransportTCP::setFilter(int filter_num)

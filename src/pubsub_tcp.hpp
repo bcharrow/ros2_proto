@@ -106,12 +106,18 @@ public:
     tcp->setDisconnectCallback(boost::bind(&TCPPublish::onDisconnect, this, _1));
     tcp->enableRead();
     tcp->setMsgCallback(boost::bind(&TCPPublish::onOptions, this,
-                                    boost::weak_ptr<TransportTCP>(tcp), _1, _2));
+                                    boost::weak_ptr<TransportTCP>(tcp), _1));
   }
 
   void onOptions(const boost::weak_ptr<TransportTCP> weak_tcp,
-                 const boost::shared_array<uint8_t> &bytes, uint32_t sz) {
+                 const std::vector<Frame> &frames) {
     boost::mutex::scoped_lock lock(connections_mutex_);
+    if (frames.size() != 1) {
+      ROS_ERROR("Got %zu frames; expected 1", frames.size());
+      ROS_BREAK();
+    }
+    const boost::shared_array<uint8_t> &bytes = frames[0].data;
+    uint32_t sz = frames[0].size;
 
     TransportTCPPtr tcp = weak_tcp.lock();
     if (!tcp) {
@@ -230,7 +236,7 @@ public:
     tcp_->setDisconnectCallback(boost::bind(&TCPSubscribe::onDisconnect, this, _1));
     tcp_->enableMessagePass();
     tcp_->enableRead();
-    tcp_->setMsgCallback(boost::bind(&TCPSubscribe::receive, this, _1, _2));
+    tcp_->setMsgCallback(boost::bind(&TCPSubscribe::receive, this, _1));
 
     uint32_t opts_sz = ros::serialization::serializationLength(opts_);
     boost::shared_array<uint8_t> opts_bytes(new uint8_t[opts_sz]);
@@ -240,7 +246,14 @@ public:
     tcp_->sendMessage(opts_bytes, opts_sz);
   }
 
-  void receive(const boost::shared_array<uint8_t> &bytes, uint32_t sz) {
+  void receive(const std::vector<Frame> &frames) {
+    if (frames.size() != 1) {
+      ROS_ERROR("Got %zu frames; expected 1", frames.size());
+      ROS_BREAK();
+    }
+    const boost::shared_array<uint8_t> &bytes = frames[0].data;
+    uint32_t sz = frames[0].size;
+
     // ROS_INFO("TCPSubscribe::receive() Got a message!");
     if (opts_.compression == ros2_comm::TCPOptions::NONE) {
       Message msg(sz);

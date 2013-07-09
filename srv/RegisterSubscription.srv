@@ -1,0 +1,4 @@
+string topic
+string node_uri
+---
+string[] publisher_uris
