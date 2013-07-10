@@ -228,6 +228,9 @@ public:
     size_t n = endpoint.find(':');
     std::string host = endpoint.substr(0, n);
     int port = atoi(endpoint.substr(n+1).c_str());
+    if (host == "localhost") {
+      host = "127.0.0.1";
+    }
     if (!tcp_->connect(host, port)) {
       ROS_ERROR("connect()");
       ROS_BREAK();

@@ -48,6 +48,9 @@ add_executable(register_pub src/register_pub.cpp)
 target_link_libraries(register_sub ros2_comm)
 target_link_libraries(register_pub ros2_comm)
 
+add_executable(master src/master.cpp)
+target_link_libraries(master ros2_comm)
+
 #############
 ## Install ##
 #############

@@ -311,7 +311,7 @@ private:
 class MasterRegistration : public RegistrationProtocol {
 public:
   MasterRegistration(const NodeAddress &master, PollSet *ps)
-    : master_(master), ps_(ps), tm_(NULL), service_(NULL) {
+    : master_(master), ps_(ps), tm_(NULL), services_(NULL) {
   }
 
   virtual void registerSubscription(const std::string &topic,
@@ -320,8 +320,7 @@ public:
     ros2_comm::RegisterSubscription reg_sub;
     reg_sub.request.topic = topic;
     reg_sub.request.node_uri = myURI();
-    // callMaster(&reg_sub);
-    reg_sub.response.publisher_uris.push_back("127.0.0.1:5555");
+    callMaster("registerSubscription", &reg_sub);
     // Contact publishers to get endpoints
     contactPublishers(topic, reg_sub.response.publisher_uris, callback);
   }
@@ -331,30 +330,40 @@ public:
     ros2_comm::UnregisterSubscription unreg_sub;
     unreg_sub.request.topic = topic;
     unreg_sub.request.node_uri = myURI();
-    // callMaster(&unreg_sub);
+    callMaster("unregisterSubscription", &unreg_sub);
     return true;
   }
 
   virtual void registerPublication(const std::string &topic) {
     ROS_INFO("Registering publication on %s", topic.c_str());
+    // Inform master we're publishing
+    ros2_comm::RegisterPublication reg_pub;
+    reg_pub.request.topic = topic;
+    reg_pub.request.node_uri = myURI();
+    callMaster("registerPublication", &reg_pub);
   }
 
   virtual bool unregisterPublication(const std::string &topic) {
     ROS_INFO("Unregistering publication on %s", topic.c_str());
+    ros2_comm::UnregisterPublication unreg_pub;
+    unreg_pub.request.topic = topic;
+    unreg_pub.request.node_uri = myURI();
+    callMaster("unregisterPublication", &unreg_pub);
     return true;
   }
 
   void init(int port) {
-    service_.reset(new ServiceManager<ros2_comm::TopicRequest>(TransportTCPPtr(new TransportTCP(ps_))));
-    service_->init(port);
-
-    service_->bind(boost::bind(&MasterRegistration::handleRequestTopic, this, _1, _2));
+    services_.reset(new MultiServiceManager(TransportTCPPtr(new TransportTCP(ps_))));
+    services_->init(port);
+    ServiceCallbackPtr scht(new ServiceCallbackT<ros2_comm::TopicRequest>(boost::bind(&MasterRegistration::requestTopic, this, _1, _2)));
+    services_->bind("requestTopic", scht);
   }
 
-  void handleRequestTopic(const ros2_comm::TopicRequest::Request &req,
-                          ros2_comm::TopicRequest::Response *rep) {
-    ROS_INFO_STREAM("Got a request:\n" << req);
-    rep->uris = tm_->publicationURIs(req.topic);
+  void requestTopic(const ros2_comm::TopicRequest::Request &request,
+                    ros2_comm::TopicRequest::Response *response) {
+    ROS_INFO_STREAM("Got a request:\n" << request);
+    response->uris = tm_->publicationURIs(request.topic);
+    ROS_INFO_STREAM("Responding with:\n" << *response);
   }
 
   virtual void setTopicManager(TopicManager *tm) {
@@ -363,17 +372,17 @@ public:
 
   std::string myURI() {
     char s[80];
-    sprintf(s, "127.0.0.1:%i", service_->socket().getServerPort());
+    sprintf(s, "127.0.0.1:%i", services_->socket().getServerPort());
     return std::string(s);
   }
 
 private:
   template <typename M>
-  void callMaster(M *req_rep) {
-    ServiceClient<M> sc;
+  void callMaster(const std::string &method, M *req_rep) {
+    MultiServiceClient msc;
     TransportTCPPtr tcp(new TransportTCP(ps_));
     tcp->connect(master_.addr(), master_.port());
-    sc.call(tcp, req_rep);
+    msc.call(tcp, method, req_rep);
     tcp->close();
   }
 
@@ -388,10 +397,10 @@ private:
       TransportTCPPtr tcp(new TransportTCP(ps_));
       tcp->connect(addr, port);
 
-      ServiceClient<ros2_comm::TopicRequest> sc;
+      MultiServiceClient sc;
       ros2_comm::TopicRequest tr;
       tr.request.topic = topic;
-      sc.call(tcp, &tr);
+      sc.call(tcp, "requestTopic", &tr);
 
       callback(tr.response.uris);
       tcp->close();
@@ -401,8 +410,7 @@ private:
   NodeAddress master_;
   PollSet *ps_;
   TopicManager *tm_;
-  boost::scoped_ptr<ServiceManager<ros2_comm::TopicRequest> > service_;
-  std::map<std::string, SubscriptionCallback> sub_cbs_;
+  boost::scoped_ptr<MultiServiceManager> services_;
 };
 
 }
