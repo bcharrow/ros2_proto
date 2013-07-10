@@ -776,7 +776,7 @@ void TransportTCP::writeMessage(const TransportPtr &trans)
   if (msg->numframes_filled < 4)
   {
     // Send number of frames
-    // ROS_INFO("Sending #frames = %i", msg->numframes);
+    ROS_DEBUG("Sending #frames = %i", msg->numframes);
     uint8_t *sz = (uint8_t*)&msg->numframes;
     wrote = write(sz + msg->numframes_filled, 4 - msg->numframes_filled);
     if (wrote >= 0)
@@ -801,7 +801,7 @@ void TransportTCP::writeFrame(boost::shared_ptr<Message> msg)
   if (msg->frame_sz_filled < 4)
   {
     // send frame size
-    // ROS_INFO("Sending frame %i size = %i", msg->frame_ind, msg->frame_sz);
+    ROS_DEBUG("Sending frame %i size = %i", msg->frame_ind, msg->frame_sz);
     uint8_t *sz = (uint8_t*)&msg->frame_sz;
     uint32_t left = 4 - msg->frame_sz_filled;
     int32_t wrote = write(sz + msg->frame_sz_filled, left);
@@ -818,12 +818,13 @@ void TransportTCP::writeFrame(boost::shared_ptr<Message> msg)
   else
   {
     // Send frame payload
-    // ROS_INFO("Sending frame %i payload %i/%i sent",
-    //          msg->frame_ind, msg->frame_filled, frame.size);
+    ROS_DEBUG("Sending frame %i payload %i/%i sent",
+             msg->frame_ind, msg->frame_filled, frame.size);
     uint32_t left = frame.size - msg->frame_filled;
     uint32_t wrote = write(frame.data.get() + msg->frame_filled, left);
     if (wrote >= 0)
     {
+      ROS_DEBUG("Wrote %i", wrote);
       msg->frame_filled += wrote;
     }
     else
@@ -835,18 +836,18 @@ void TransportTCP::writeFrame(boost::shared_ptr<Message> msg)
     // Check if frame and message is done
     if (msg->frame_filled == frame.size)
     {
-      // ROS_INFO("Finished frame %i", msg->frame_ind);
+      ROS_DEBUG("Finished frame %i", msg->frame_ind);
 
       msg->frame_ind++;;
       if (msg->frame_ind < msg->frames.size())
       {
         msg->frame_filled = 0;
-        msg->frame_sz = msg->frames.at(0).size;
+        msg->frame_sz = msg->frames.at(msg->frame_ind).size;
         msg->frame_sz_filled = 0;
       }
       else
       {
-        // ROS_INFO("Finished sending message");
+        ROS_DEBUG("Finished sending message");
         send_msgs_.pop_front();
         if (send_msgs_.size() == 0)
         {
@@ -868,7 +869,7 @@ void TransportTCP::readMessage(const TransportPtr &trans)
 
   if (!reading_)
   {
-    // ROS_INFO("Starting to read a message");
+    ROS_DEBUG("Starting to read a message");
     read_msg_.frames.resize(0);
     read_msg_.numframes_filled = 0;
     read_msg_.frame_ind = 0;
@@ -880,7 +881,7 @@ void TransportTCP::readMessage(const TransportPtr &trans)
   // Read message length
   if (read_msg_.numframes_filled < 4)
   {
-    // ROS_INFO("Reading number of frames");
+    ROS_DEBUG("Reading number of frames");
 
     uint32_t to_read = 4 - read_msg_.numframes_filled;
     int32_t read_sz = read(((uint8_t*)&read_msg_.numframes) + read_msg_.numframes_filled,
@@ -892,7 +893,12 @@ void TransportTCP::readMessage(const TransportPtr &trans)
     read_msg_.numframes_filled += read_sz;
     if (read_msg_.numframes_filled == 4)
     {
-      // ROS_INFO("There are %i frames", read_msg_.numframes);
+      ROS_DEBUG("There are %i frames", read_msg_.numframes);
+      if (read_msg_.numframes == 0)
+      {
+        ROS_WARN("Message with 0 frames; closing connection");
+        close();
+      }
       read_msg_.frames.resize(read_msg_.numframes);
     }
   }
@@ -908,7 +914,7 @@ void TransportTCP::readFrame()
   if (read_msg_.frame_sz_filled < 4)
   {
     // Read frame size
-    // ROS_INFO("Reading frame %i size", read_msg_.frame_ind);
+    ROS_DEBUG("Reading frame %i size", read_msg_.frame_ind);
     uint32_t to_read = 4 - read_msg_.frame_sz_filled;
     int32_t read_sz = read(((uint8_t*)&frame.size) + read_msg_.frame_sz_filled,
                             to_read);
@@ -919,7 +925,12 @@ void TransportTCP::readFrame()
     read_msg_.frame_sz_filled += read_sz;
     if (read_msg_.frame_sz_filled == 4)
     {
-      // ROS_INFO("Frame %i has %i bytes", read_msg_.frame_ind, frame.size);
+      ROS_DEBUG("Frame %i has %i bytes", read_msg_.frame_ind, frame.size);
+      if (frame.size == 0)
+      {
+        ROS_WARN("Frame with 0 bytes; closing connection");
+        close();
+      }
       frame.data.reset(new uint8_t[frame.size]);
     }
   }
@@ -934,11 +945,14 @@ void TransportTCP::readFrame()
       return;
     }
     read_msg_.frame_filled += read_sz;
-    // ROS_INFO("Got %i/%i bytes for frame %i",
-    //          read_msg_.frame_filled, frame.size, read_msg_.frame_ind);
+    ROS_DEBUG("Got %i/%i bytes for frame %i",
+             read_msg_.frame_filled, frame.size, read_msg_.frame_ind);
     if (read_msg_.frame_filled == frame.size)
     {
       read_msg_.frame_ind++;
+      read_msg_.frame_filled = 0;
+      read_msg_.frame_sz_filled = 0;
+
       if (read_msg_.frame_ind == read_msg_.frames.size())
       {
         readmsg_cb_(read_msg_.frames);
@@ -959,7 +973,8 @@ void TransportTCP::sendFrames(const std::vector<Frame> &frames)
 
   msg_counter_++;
   msg_counter_ = msg_counter_ % filter_;
-  if (msg_counter_ != 0) {
+  if (msg_counter_ != 0)
+  {
     return;
   }
 
