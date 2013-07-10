@@ -137,7 +137,6 @@ public:
     const boost::shared_array<uint8_t> &bytes = frames[0].data;
     uint32_t sz = frames[0].size;
 
-    ROS_INFO("Received a message!");
     Request req;
     Response rep;
 
@@ -214,7 +213,6 @@ private:
     const boost::shared_array<uint8_t> &bytes = frames[0].data;
     uint32_t sz = frames[0].size;
 
-
     if (done_ != false) {
       ROS_ERROR("done_ is not false; unexpected request?");
       ROS_BREAK();
@@ -230,6 +228,207 @@ private:
   M *req_rep_;
   bool done_;
 };
+
+//============================== MultiService ===============================//
+class ServiceCallback {
+public:
+  virtual ~ServiceCallback() {}
+  virtual void call(const boost::shared_array<uint8_t>&, uint32_t,
+                    boost::shared_array<uint8_t>*, uint32_t*) = 0;
+};
+
+template <typename M>
+class ServiceCallbackT : public ServiceCallback {
+public:
+  typedef typename M::Request Request;
+  typedef typename M::Response Response;
+  typedef boost::function<void(const Request&, Response*)> Callback;
+
+  ServiceCallbackT(const Callback &cb) : cb_(cb) {}
+
+  virtual void call(const boost::shared_array<uint8_t> &req_bytes, uint32_t req_sz,
+                    boost::shared_array<uint8_t>* resp_bytes, uint32_t* resp_sz) {
+    Request request;
+    Response response;
+    ros::serialization::IStream istream(req_bytes.get(), req_sz);
+    ros::serialization::Serializer<Request>::read(istream, request);
+
+    cb_(request, &response);
+
+    *resp_sz = ros::serialization::serializationLength(response);
+    resp_bytes->reset(new uint8_t[*resp_sz]);
+    ros::serialization::OStream ostream(resp_bytes->get(), *resp_sz);
+    ros::serialization::serialize(ostream, response);
+  }
+
+private:
+  Callback cb_;
+};
+
+typedef boost::shared_ptr<ServiceCallback> ServiceCallbackPtr;
+
+class MultiServiceManager {
+public:
+  MultiServiceManager(TransportTCPPtr server) : server_(server) {
+
+  }
+
+  ~MultiServiceManager() {
+    server_->close();
+  }
+
+  const TransportTCP& socket() { return *server_; }
+
+  void init(int port) {
+    if (!server_->listen(port, 5,
+                         boost::bind(&MultiServiceManager::onAccept, this, _1))) {
+      ROS_ERROR("Failed to listen");
+      ROS_BREAK();
+    }
+  }
+
+  void bind(const std::string &method, ServiceCallbackPtr cb) {
+    boost::mutex::scoped_lock lock(mutex_);
+    cbs_[method] = cb;
+  }
+
+  void onAccept(const TransportTCPPtr &tcp) {
+    boost::mutex::scoped_lock lock(mutex_);
+    ROS_INFO("Got a connection from %s", tcp->getClientURI().c_str());
+    tcp->enableMessagePass();
+    tcp->enableRead();
+    tcp->setMsgCallback(boost::bind(&MultiServiceManager::onReceive, this,
+                                    tcp, _1));
+    tcp->setDisconnectCallback(boost::bind(&MultiServiceManager::onDisconnect,
+                                           this, _1));
+    connections_.push_back(tcp);
+  }
+
+  void onReceive(const TransportTCPPtr &tcp,
+                 const std::vector<Frame> &frames) {
+    boost::mutex::scoped_lock lock(mutex_);
+    if (frames.size() != 2) {
+      ROS_ERROR("Got %zu frames; expected 2", frames.size());
+      ROS_BREAK();
+    }
+
+    std::string method((char*)frames[0].data.get(), frames[0].size);
+    ROS_INFO("Received a message for method %s", method.c_str());
+
+    const boost::shared_array<uint8_t> &req_bytes = frames[1].data;
+    uint32_t req_sz = frames[1].size;
+
+    std::map<std::string, ServiceCallbackPtr>::iterator it = cbs_.find(method);
+    if (it != cbs_.end()) {
+      boost::shared_array<uint8_t> resp_bytes(NULL);
+      uint32_t resp_sz;
+      it->second->call(req_bytes, req_sz, &resp_bytes, &resp_sz);
+      tcp->sendMessage(resp_bytes, resp_sz);
+    } else {
+      ROS_WARN("No method bound for type %s", method.c_str());
+    }
+  }
+
+  void onDisconnect(const TransportPtr &tcp) {
+    boost::mutex::scoped_lock lock(mutex_);
+
+    for (std::list<TransportTCPPtr>::iterator it = connections_.begin();
+         it != connections_.end(); ++it) {
+      if (*it == tcp) {
+        connections_.erase(it);
+        return;
+      }
+    }
+    ROS_ERROR("Disconnect from TransportPtr, but not in list!");
+  }
+
+private:
+  boost::mutex mutex_;
+  TransportTCPPtr server_;
+  std::list<TransportTCPPtr> connections_;
+  std::map<std::string, ServiceCallbackPtr> cbs_;
+};
+
+class MultiServiceClient {
+public:
+  MultiServiceClient() : bytes_(NULL), sz_(0), done_(true), opened_(false) {
+
+  }
+
+  template <typename M>
+  void call(boost::shared_ptr<TransportTCP> server, const std::string &method,
+            M *req_rep) {
+    server->enableMessagePass();
+    server->enableRead();
+    server->setDisconnectCallback(boost::bind(&MultiServiceClient::onDisconnect,
+                                              this, _1));
+
+    server->setMsgCallback(boost::bind(&MultiServiceClient::onResponse, this, _1));
+
+    uint32_t req_sz = ros::serialization::serializationLength(req_rep->request);
+    boost::shared_array<uint8_t> req_bytes(new uint8_t[req_sz]);
+    ros::serialization::OStream ostream(req_bytes.get(), req_sz);
+    ros::serialization::serialize(ostream, req_rep->request);
+
+    std::vector<Frame> frames;
+    frames.resize(2);
+    frames[0].size = method.size();
+    frames[0].data.reset(new uint8_t[method.size()]);
+    copy(method.begin(), method.end(), frames[0].data.get());
+    frames[1].size = req_sz;
+    frames[1].data = req_bytes;
+
+    server->sendFrames(frames);
+    ROS_INFO("Waiting for response");
+    {
+      boost::unique_lock<boost::mutex> lock(mutex_);
+      done_ = false;
+      opened_ = true;
+      while (done_ == false && opened_ == true) {
+        cv_.wait(lock);
+      }
+      if (!opened_) {
+        ROS_WARN("Socket was closed, ignoring service callback");
+        return;
+      }
+      ros::serialization::IStream istream(bytes_.get(), sz_);
+      ros::serialization::Serializer<typename M::Response>::read(istream, req_rep->response);
+      ROS_INFO("Done!");
+    }
+  }
+
+private:
+  void onResponse(const std::vector<Frame> &frames) {
+    boost::unique_lock<boost::mutex> lock(mutex_);
+    if (frames.size() != 1) {
+      ROS_ERROR("Got %zu frames; expected 1", frames.size());
+      ROS_BREAK();
+    }
+    bytes_ = frames[0].data;
+    sz_ = frames[0].size;
+
+    if (done_ != false) {
+      ROS_ERROR("done_ is not false; unexpected request?");
+      ROS_BREAK();
+    }
+    done_ = true;
+    cv_.notify_all();
+  }
+
+  void onDisconnect(const TransportPtr &conn) {
+    boost::unique_lock<boost::mutex> lock(mutex_);
+    opened_ = false;
+    cv_.notify_all();
+  }
+
+  boost::mutex mutex_;
+  boost::condition_variable cv_;
+  boost::shared_array<uint8_t> bytes_;
+  uint32_t sz_;
+  bool done_; // false if outgoing rpc is not finished
+  bool opened_; // true if socket is open
+};
+
 
 } // ros2
 
