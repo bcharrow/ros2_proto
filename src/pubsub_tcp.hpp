@@ -199,13 +199,13 @@ private:
 
 class TCPSubscribe : public SubscribeTransport {
 public:
-  TCPSubscribe(const TransportTCPPtr &tcp) : tcp_(tcp) {
+  TCPSubscribe(PollSet *ps) : ps_(ps) {
     opts_.tcp_nodelay = false;
     opts_.compression = ros2_comm::TCPOptions::NONE;
   }
 
-  TCPSubscribe(const TransportTCPPtr &tcp,
-               const ros2_comm::TCPOptions &opts) : tcp_(tcp), opts_(opts) {}
+  TCPSubscribe(PollSet *ps, const ros2_comm::TCPOptions &opts)
+    : ps_(ps), opts_(opts) {}
 
   ~TCPSubscribe() {
     shutdown();
@@ -224,6 +224,7 @@ public:
   }
 
   void start(const std::string &endpoint) {
+    tcp_ = boost::shared_ptr<TransportTCP>(new TransportTCP(ps_));
     ROS_INFO("%s", endpoint.c_str());
     size_t n = endpoint.find(':');
     std::string host = endpoint.substr(0, n);
@@ -287,6 +288,7 @@ public:
   }
 
 protected:
+  PollSet *ps_;
   TransportTCPPtr tcp_;
   MessageCallback cb_;
   ros2_comm::TCPOptions opts_;
@@ -303,8 +305,7 @@ public:
     opts.tcp_nodelay = true;
     opts.compression = ros2_comm::TCPOptions::NONE;
     opts.filter = 1;
-    boost::shared_ptr<TransportTCP> trans_tcp(new TransportTCP(ps_));
-    return new TCPSubscribe(trans_tcp, opts);
+    return new TCPSubscribe(ps_, opts);
   }
 
 private:
