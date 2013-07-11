@@ -109,20 +109,31 @@ public:
 
   void addTransport(SubscribeTransport *transport) {
     ROS_INFO("Adding transport %s for topic %s", transport->protocol(), topic_.c_str());
-    protos_[transport->protocol()] = boost::shared_ptr<SubscribeTransport>(transport);
+    protos_.push_back(boost::shared_ptr<SubscribeTransport>(transport));
   }
 
   void foundPublisher(const std::vector<std::string> &uris) {
+    std::map<std::string, std::string> remote_proto_endpoint;
+
     for (int i = 0; i < uris.size(); ++i) {
       // split each into protocol://endpoint
       const std::string &uri = uris.at(i);
       std::string protocol = uri.substr(0, uri.find(':'));
       std::string endpoint = uri.substr(uri.find("://") + 3);
-      ROS_INFO("Protocol = %s Endpoint = %s",
+      remote_proto_endpoint[protocol] = endpoint;
+      ROS_INFO("Remote Protocol = %s Endpoint = %s",
                protocol.c_str(), endpoint.c_str());
-      if (protos_.count(protocol) != 0) {
-        protos_[protocol]->onReceive(cb_);
-        protos_[protocol]->start(endpoint);
+    }
+
+    for (int i = 0; i < protos_.size(); ++i) {
+      boost::shared_ptr<SubscribeTransport> &proto = protos_.at(i);
+      std::map<std::string, std::string>::iterator it;
+      it = remote_proto_endpoint.find(std::string(proto->protocol()));
+      if (it != remote_proto_endpoint.end()) {
+        ROS_INFO("Using protocol %s w/ endpoint %s",
+                 it->first.c_str(), it->second.c_str());
+        proto->onReceive(cb_);
+        proto->start(it->second);
         return;
       }
     }
@@ -130,15 +141,15 @@ public:
   }
 
   void shutdown() {
-    for (std::map<std::string, boost::shared_ptr<SubscribeTransport> >::iterator it = protos_.begin(); it != protos_.end(); ++it) {
-      it->second->shutdown();
+    for (std::vector<boost::shared_ptr<SubscribeTransport> >::iterator it = protos_.begin(); it != protos_.end(); ++it) {
+      (*it)->shutdown();
     }
   }
 
 protected:
   boost::mutex callback_mutex_;
   std::string topic_;
-  std::map<std::string, boost::shared_ptr<SubscribeTransport> > protos_;
+  std::vector<boost::shared_ptr<SubscribeTransport> > protos_;
   MessageCallback cb_;
 };
 
