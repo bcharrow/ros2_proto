@@ -39,19 +39,19 @@ int main(int argc, char **argv) {
   // StaticRegistration static_res;
   // static_res.addPub("/data", "tcpros://127.0.0.1:" + string(argv[2]));
   MasterRegistration master_res(NodeAddress("127.0.0.1", 11311), &pm.getPollSet());
-  master_res.init(0);
-
   RegistrationProtocol *reg = &master_res;
-
-  TopicManager tm(reg);
-
-  TCPSubFactory sub_factory_tcp(&pm.getPollSet());
-  tm.addSubscribeTransport(&sub_factory_tcp);
+  TopicManager tm(reg, &pm.getPollSet());
+  tm.init(0);
+  master_res.myURI(tm.myURI());
 
   ZMQSubFactory sub_factory_zmq;
   tm.addSubscribeTransport(&sub_factory_zmq);
 
-  tm.subscribe("/data", callback);
+  TCPSubFactory sub_factory_tcp(&pm.getPollSet());
+  tm.addSubscribeTransport(&sub_factory_tcp);
+
+  tm.subscribe("/foo", callback);
+  // tm.setRemap("/foo", "/data");
 
   uint64_t start = usectime();
   {

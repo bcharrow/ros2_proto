@@ -2,14 +2,21 @@
 #define SUBSCRIPTION_HPP
 
 #include "core.hpp"
-#include <boost/scoped_ptr.hpp>
 
+#include <set>
+
+#include <boost/scoped_ptr.hpp>
+#include <boost/algorithm/string.hpp>
+
+#include <ros2_comm/SetRemappings.h>
 #include <ros2_comm/RegisterSubscription.h>
 #include <ros2_comm/UnregisterSubscription.h>
 #include <ros2_comm/RegisterPublication.h>
 #include <ros2_comm/UnregisterPublication.h>
 
 namespace ros2 {
+
+typedef std::map<std::string, std::string> M_string;
 
 //============================== Registration ===============================//
 class TopicManager;
@@ -25,7 +32,6 @@ public:
   virtual bool unregisterSubscription(const std::string &topic) = 0;
   virtual void registerPublication(const std::string &topic) = 0;
   virtual bool unregisterPublication(const std::string &topic) = 0;
-  virtual void setTopicManager(TopicManager *tm) {};
 };
 
 //=============================== Publication ===============================//
@@ -146,6 +152,9 @@ public:
     }
   }
 
+  MessageCallback callback() {
+    return cb_;
+  }
 protected:
   boost::mutex callback_mutex_;
   std::string topic_;
@@ -159,51 +168,81 @@ typedef boost::shared_ptr<Subscription> SubscriptionPtr;
 
 class TopicManager {
 public:
-  TopicManager(RegistrationProtocol *regp) : regp_(regp) {
-    regp->setTopicManager(this);
-  }
+  TopicManager(RegistrationProtocol *regp, PollSet *ps)
+    : regp_(regp), ps_(ps) { }
 
   ~TopicManager() {
     shutdown();
   }
 
   void shutdown() {
-    std::map<std::string, PublicationPtr> pubs = publications_;
-    for (std::map<std::string, PublicationPtr>::iterator it = pubs.begin();
-         it != pubs.end(); ++it) {
+    boost::recursive_mutex::scoped_lock lock(mutex_);
+
+    M_string pmap = pub_map_;
+    for (M_string::iterator it = pmap.begin(); it != pmap.end(); ++it) {
       unregisterPublication(it->first);
     }
 
-    std::map<std::string, SubscriptionPtr> subs = subscriptions_;
-    for (std::map<std::string, SubscriptionPtr>::iterator it = subs.begin();
-         it != subs.end(); ++it) {
+    M_string smap = sub_map_;
+    for (M_string::iterator it = smap.begin(); it != smap.end(); ++it) {
       unregisterSubscription(it->first);
     }
   }
 
   void addPublishTransport(PublishTransportFactory *factory) {
+    boost::recursive_mutex::scoped_lock lock(mutex_);
+
     pub_factories_.push_back(factory);
   }
 
   void addSubscribeTransport(SubscribeTransportFactory *factory) {
+    boost::recursive_mutex::scoped_lock lock(mutex_);
+
     sub_factories_.push_back(factory);
   }
 
-  void unregisterSubscription(const std::string &topic) {
+  void unregisterSubscription(const std::string &unmapped) {
+    boost::recursive_mutex::scoped_lock lock(mutex_);
+
+    M_string::iterator it = sub_map_.find(unmapped);
+    assert(it != sub_map_.end());
+    std::string &topic = it->second;
     assert(subscriptions_.count(topic) != 0);
     subscriptions_[topic]->shutdown();
     subscriptions_.erase(topic);
     regp_->unregisterSubscription(topic);
+    sub_map_.erase(it);
   }
 
-  void unregisterPublication(const std::string &topic) {
+  void registerPublication(const std::string &unmapped) {
+    boost::recursive_mutex::scoped_lock lock(mutex_);
+
+    std::string &topic = pub_map_[unmapped];
+    topic = remap(unmapped);
+    assert(publications_.count(topic) == 0);
+    publications_[topic] = createPublication(topic);
+    regp_->registerPublication(topic);
+  }
+
+  void unregisterPublication(const std::string &unmapped) {
+    boost::recursive_mutex::scoped_lock lock(mutex_);
+
+    M_string::iterator it = pub_map_.find(unmapped);
+    assert(it != pub_map_.end());
+    std::string &topic = it->second;
     assert(publications_.count(topic) != 0);
     publications_[topic]->shutdown();
     publications_.erase(topic);
     regp_->unregisterPublication(topic);
+    pub_map_.erase(it);
   }
 
-  void subscribe(const std::string &topic, const MessageCallback &cb) {
+  void subscribe(const std::string &unmapped, const MessageCallback &cb) {
+    boost::recursive_mutex::scoped_lock lock(mutex_);
+
+    std::string topic = remap(unmapped);
+    assert(sub_map_.count(topic) == 0);
+    sub_map_[unmapped] = topic;
     assert(subscriptions_.count(topic) == 0);
     boost::shared_ptr<Subscription> sub = createSubscription(topic, cb);
     subscriptions_[topic] = sub;
@@ -211,15 +250,21 @@ public:
                                                    sub.get(), _1));
   }
 
-  void publish(const std::string &topic, const Message &msg) {
-    if (publications_.count(topic) == 0) {
-      publications_[topic] = createPublication(topic);
-      regp_->registerPublication(topic);
+  void publish(const std::string &unmapped, const Message &msg) {
+    boost::recursive_mutex::scoped_lock lock(mutex_);
+
+    if (pub_map_.count(unmapped) == 0) {
+      registerPublication(unmapped);
+    } else {
+      assert(pub_map_[unmapped] == remap(unmapped, false));
     }
+    std::string topic = pub_map_[unmapped];
     publications_[topic]->publish(msg);
   }
 
-  std::vector<std::string> publicationURIs(const std::string &topic) const {
+  std::vector<std::string> publicationURIs(const std::string &topic) {
+    boost::recursive_mutex::scoped_lock lock(mutex_);
+
     std::vector<std::string> uris;
     std::map<std::string, PublicationPtr>::const_iterator it = publications_.find(topic);
     if (it != publications_.end()) {
@@ -231,6 +276,110 @@ public:
       }
     }
     return uris;
+  }
+
+  //================================= RPCs ==================================//
+  void init(int port) {
+    services_.reset(new MultiServiceManager(TransportTCPPtr(new TransportTCP(ps_))));
+    services_->init(port);
+    ServiceCallbackPtr scht(new ServiceCallbackT<ros2_comm::TopicRequest>(boost::bind(&TopicManager::requestTopic, this, _1, _2)));
+    services_->bind("requestTopic", scht);
+
+    ServiceCallbackPtr remaps(new ServiceCallbackT<ros2_comm::SetRemappings>(boost::bind(&TopicManager::setRemappings, this, _1, _2)));
+    services_->bind("setRemappings", remaps);
+
+    ROS_INFO("TopicManager @ %s", myURI().c_str());
+  }
+
+  void requestTopic(const ros2_comm::TopicRequest::Request &request,
+                    ros2_comm::TopicRequest::Response *response) {
+    boost::recursive_mutex::scoped_lock lock(mutex_);
+
+    ROS_INFO_STREAM("Got a request:\n" << request);
+    response->uris = publicationURIs(request.topic);
+    ROS_INFO_STREAM("Responding with:\n" << *response);
+  }
+
+  void setRemappings(const ros2_comm::SetRemappings::Request &request,
+                     ros2_comm::SetRemappings::Response *response) {
+    boost::recursive_mutex::scoped_lock lock(mutex_);
+
+    const std::vector<std::string> &find = request.find;
+    const std::vector<std::string> &replace = request.replace;
+    assert(find.size() == replace.size());
+
+    remaps_.clear();
+    for (int i = 0; i < find.size(); ++i) {
+      remaps_[find.at(i)] = replace.at(i);
+    }
+    refreshRemaps();
+  }
+
+  std::string myURI() {
+    boost::recursive_mutex::scoped_lock lock(mutex_);
+
+    char s[80];
+    sprintf(s, "127.0.0.1:%i", services_->socket().getServerPort());
+    return std::string(s);
+  }
+
+  //=============================== Remapping ===============================//
+  // Specify a renaming rule
+  void setRemap(const std::string &find, const std::string &replace) {
+    boost::recursive_mutex::scoped_lock lock(mutex_);
+
+    remaps_[find] = replace;
+    refreshRemaps();
+  }
+
+  void refreshRemaps() {
+    boost::recursive_mutex::scoped_lock lock(mutex_);
+
+    // Copy map to avoid invalid references when subscribing / unsubscribing
+    M_string pmap = pub_map_;
+    for (M_string::iterator it = pmap.begin(); it != pmap.end(); ++it) {
+      std::string &current_topic = it->second;
+      std::string remapped = remap(it->first);
+      if (remapped != current_topic) {
+        unregisterPublication(it->first);
+        registerPublication(it->first);
+        assert(it->second == remapped);
+      }
+    }
+
+    // Copy map to avoid invalid references when subscribing / unsubscribing
+    M_string smap = sub_map_;
+    for (M_string::iterator it = smap.begin(); it != smap.end(); ++it) {
+      const std::string &orig = it->first;
+      const std::string &current_topic = it->second;
+      std::string remapped = remap(orig);
+      if (remapped != current_topic) {
+        MessageCallback cb = subscriptions_[current_topic]->callback();
+        unregisterSubscription(orig);
+        subscribe(orig, cb);
+        assert(sub_map_[orig] == remapped);
+      }
+    }
+  }
+
+  // Apply renaming to get new name
+  std::string remap(const std::string &name, bool verbose = true) {
+    boost::recursive_mutex::scoped_lock lock(mutex_);
+
+    std::string remapped = name;
+    for (M_string::iterator it = remaps_.begin(); it != remaps_.end(); ++it) {
+      const std::string &start = it->first;
+      const std::string &replace = it->second;
+      if (boost::starts_with(name, start)) {
+        remapped.replace(remapped.begin(), remapped.begin() + start.size(),
+                         replace);
+        break;
+      }
+    }
+    if (verbose) {
+      ROS_INFO("Changed %s to %s", name.c_str(), remapped.c_str());
+    }
+    return remapped;
   }
 
 private:
@@ -251,10 +400,20 @@ private:
     return pub;
   }
 
+  boost::recursive_mutex mutex_;
+
+  PollSet *ps_;
+  boost::scoped_ptr<MultiServiceManager> services_;
   RegistrationProtocol *regp_;
 
   std::vector<SubscribeTransportFactory*> sub_factories_;
   std::vector<PublishTransportFactory*> pub_factories_;
+
+  M_string pub_map_;
+  M_string sub_map_;
+
+  M_string remaps_;
+
   std::map<std::string, PublicationPtr> publications_;
   std::map<std::string, SubscriptionPtr> subscriptions_;
 };
@@ -322,7 +481,7 @@ private:
 class MasterRegistration : public RegistrationProtocol {
 public:
   MasterRegistration(const NodeAddress &master, PollSet *ps)
-    : master_(master), ps_(ps), tm_(NULL), services_(NULL) {
+    : master_(master), ps_(ps), my_uri_("") {
   }
 
   virtual void registerSubscription(const std::string &topic,
@@ -331,9 +490,17 @@ public:
     ros2_comm::RegisterSubscription reg_sub;
     reg_sub.request.topic = topic;
     reg_sub.request.node_uri = myURI();
-    callMaster("registerSubscription", &reg_sub);
+    callMaster("registerSubscription", reg_sub,
+               boost::bind(&MasterRegistration::registerSubscriptionCb, this,
+                           _1, callback));
+  }
+
+  void registerSubscriptionCb(const ros2_comm::RegisterSubscription &reg_sub,
+                              const SubscriptionCallback &callback) {
     // Contact publishers to get endpoints
-    contactPublishers(topic, reg_sub.response.publisher_uris, callback);
+    contactPublishers(reg_sub.request.topic,
+                      reg_sub.response.publisher_uris,
+                      callback);
   }
 
   virtual bool unregisterSubscription(const std::string &topic) {
@@ -341,7 +508,7 @@ public:
     ros2_comm::UnregisterSubscription unreg_sub;
     unreg_sub.request.topic = topic;
     unreg_sub.request.node_uri = myURI();
-    callMaster("unregisterSubscription", &unreg_sub);
+    callMaster("unregisterSubscription", unreg_sub);
     return true;
   }
 
@@ -351,50 +518,55 @@ public:
     ros2_comm::RegisterPublication reg_pub;
     reg_pub.request.topic = topic;
     reg_pub.request.node_uri = myURI();
-    callMaster("registerPublication", &reg_pub);
+    callMaster("registerPublication", reg_pub);
   }
 
   virtual bool unregisterPublication(const std::string &topic) {
     ROS_INFO("Unregistering publication on %s", topic.c_str());
     ros2_comm::UnregisterPublication unreg_pub;
     unreg_pub.request.topic = topic;
-    unreg_pub.request.node_uri = myURI();
-    callMaster("unregisterPublication", &unreg_pub);
+    unreg_pub.request.node_uri = my_uri_;
+    callMaster("unregisterPublication", unreg_pub);
     return true;
   }
 
-  void init(int port) {
-    services_.reset(new MultiServiceManager(TransportTCPPtr(new TransportTCP(ps_))));
-    services_->init(port);
-    ServiceCallbackPtr scht(new ServiceCallbackT<ros2_comm::TopicRequest>(boost::bind(&MasterRegistration::requestTopic, this, _1, _2)));
-    services_->bind("requestTopic", scht);
-  }
-
-  void requestTopic(const ros2_comm::TopicRequest::Request &request,
-                    ros2_comm::TopicRequest::Response *response) {
-    ROS_INFO_STREAM("Got a request:\n" << request);
-    response->uris = tm_->publicationURIs(request.topic);
-    ROS_INFO_STREAM("Responding with:\n" << *response);
-  }
-
-  virtual void setTopicManager(TopicManager *tm) {
-    tm_ = tm;
+  void myURI(const std::string &uri) {
+    my_uri_ = uri;
   }
 
   std::string myURI() {
-    char s[80];
-    sprintf(s, "127.0.0.1:%i", services_->socket().getServerPort());
-    return std::string(s);
+    if (my_uri_.empty()) {
+      ROS_BREAK();
+    }
+    return my_uri_;
   }
 
 private:
   template <typename M>
-  void callMaster(const std::string &method, M *req_rep) {
-    MultiServiceClient msc;
+  void callMaster(const std::string &method, const M &req_rep,
+                  const typename ServiceResponseT<M>::Callback &cb) {
     TransportTCPPtr tcp(new TransportTCP(ps_));
     tcp->connect(master_.addr(), master_.port());
-    msc.call(tcp, method, req_rep);
-    tcp->close();
+    msc_.call(tcp, method, req_rep, cb);
+  }
+
+  template <typename M>
+  void emptyCallback(const M &req_rep) {
+
+  }
+
+  template <typename M>
+  void callMaster(const std::string &method, const M &req_rep) {
+    TransportTCPPtr tcp(new TransportTCP(ps_));
+    tcp->connect(master_.addr(), master_.port());
+    msc_.call(tcp, method, req_rep,
+              boost::bind(&MasterRegistration::emptyCallback<M>, this, _1));
+  }
+
+
+  void handleCallback(const ros2_comm::TopicRequest &req_resp,
+                      const SubscriptionCallback &callback) {
+    callback(req_resp.response.uris);
   }
 
   void contactPublishers(const std::string &topic,
@@ -408,20 +580,18 @@ private:
       TransportTCPPtr tcp(new TransportTCP(ps_));
       tcp->connect(addr, port);
 
-      MultiServiceClient sc;
-      ros2_comm::TopicRequest tr;
-      tr.request.topic = topic;
-      sc.call(tcp, "requestTopic", &tr);
-
-      callback(tr.response.uris);
-      tcp->close();
+      ros2_comm::TopicRequest req_rep;
+      req_rep.request.topic = topic;
+      msc_.call(tcp, "requestTopic", req_rep,
+                boost::bind(&MasterRegistration::handleCallback, this, _1, callback));
     }
   }
 
+
+  MultiServiceClient msc_;
   NodeAddress master_;
   PollSet *ps_;
-  TopicManager *tm_;
-  boost::scoped_ptr<MultiServiceManager> services_;
+  std::string my_uri_;
 };
 
 }

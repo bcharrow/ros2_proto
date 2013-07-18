@@ -349,26 +349,71 @@ private:
   std::map<std::string, ServiceCallbackPtr> cbs_;
 };
 
-class MultiServiceClient {
+class ServiceResponse {
 public:
-  MultiServiceClient() : bytes_(NULL), sz_(0), done_(true), opened_(false) {
+  virtual ~ServiceResponse() {}
+  virtual void call(const std::vector<Frame> &frames) = 0;
+  virtual TransportTCPPtr& socket() = 0;
+};
 
+template<typename T>
+class ServiceResponseT : public ServiceResponse {
+public:
+  typedef typename T::Request Request;
+  typedef typename T::Response Response;
+  typedef boost::function<void(const T&)> Callback;
+
+  ServiceResponseT(const Callback &cb, TransportTCPPtr tcp, const Request &req)
+    : cb_(cb), tcp_(tcp)  {
+    req_resp_.request = req;
   }
 
+  virtual void call(const std::vector<Frame> &frames) {
+    if (frames.size() != 1) {
+      ROS_ERROR("Got %zu frames; expected 1", frames.size());
+      ROS_BREAK();
+    }
+
+    ros::serialization::IStream istream(frames[0].data.get(), frames[0].size);
+    ros::serialization::Serializer<Response>::read(istream, req_resp_.response);
+
+    cb_(req_resp_);
+
+    tcp_->close();
+  }
+
+  virtual TransportTCPPtr& socket() {
+    return tcp_;
+  }
+
+private:
+  T req_resp_;
+  Callback cb_;
+  TransportTCPPtr tcp_;
+};
+
+class MultiServiceClient {
+public:
+  MultiServiceClient() { }
+
   template <typename M>
-  void call(boost::shared_ptr<TransportTCP> server, const std::string &method,
-            M *req_rep) {
+  void call(TransportTCPPtr server,
+            const std::string &method,
+            const M &req_rep,
+            const typename ServiceResponseT<M>::Callback &resp_cb) {
+    boost::mutex::scoped_lock lock(mutex_);
+
+    const typename M::Request &req = req_rep.request;
+    ServiceResponseT<M> *srv_resp_ptr = new ServiceResponseT<M>(resp_cb, server, req);
+
     server->enableMessagePass();
     server->enableRead();
-    server->setDisconnectCallback(boost::bind(&MultiServiceClient::onDisconnect,
-                                              this, _1));
-
-    server->setMsgCallback(boost::bind(&MultiServiceClient::onResponse, this, _1));
-
-    uint32_t req_sz = ros::serialization::serializationLength(req_rep->request);
+    server->setMsgCallback(boost::bind(&ServiceResponseT<M>::call, srv_resp_ptr, _1));
+    server->setDisconnectCallback(boost::bind(&MultiServiceClient::onDisconnect, this, _1));
+    uint32_t req_sz = ros::serialization::serializationLength(req);
     boost::shared_array<uint8_t> req_bytes(new uint8_t[req_sz]);
     ros::serialization::OStream ostream(req_bytes.get(), req_sz);
-    ros::serialization::serialize(ostream, req_rep->request);
+    ros::serialization::serialize(ostream, req);
 
     std::vector<Frame> frames;
     frames.resize(2);
@@ -379,54 +424,30 @@ public:
     frames[1].data = req_bytes;
 
     server->sendFrames(frames);
-    ROS_INFO("Waiting for response");
-    {
-      boost::unique_lock<boost::mutex> lock(mutex_);
-      done_ = false;
-      opened_ = true;
-      while (done_ == false && opened_ == true) {
-        cv_.wait(lock);
-      }
-      if (!opened_) {
-        ROS_WARN("Socket was closed, ignoring service callback");
-        return;
-      }
-      ros::serialization::IStream istream(bytes_.get(), sz_);
-      ros::serialization::Serializer<typename M::Response>::read(istream, req_rep->response);
-      ROS_INFO("Done!");
-    }
+
+    outgoing_calls_.push_back(srv_resp_ptr);
   }
 
 private:
-  void onResponse(const std::vector<Frame> &frames) {
-    boost::unique_lock<boost::mutex> lock(mutex_);
-    if (frames.size() != 1) {
-      ROS_ERROR("Got %zu frames; expected 1", frames.size());
-      ROS_BREAK();
-    }
-    bytes_ = frames[0].data;
-    sz_ = frames[0].size;
-
-    if (done_ != false) {
-      ROS_ERROR("done_ is not false; unexpected request?");
-      ROS_BREAK();
-    }
-    done_ = true;
-    cv_.notify_all();
-  }
-
   void onDisconnect(const TransportPtr &conn) {
-    boost::unique_lock<boost::mutex> lock(mutex_);
-    opened_ = false;
-    cv_.notify_all();
+    removeConnection(conn);
   }
 
+  void removeConnection(const TransportPtr &conn) {
+    boost::mutex::scoped_lock lock(mutex_);
+    for (std::list<ServiceResponse*>::iterator it = outgoing_calls_.begin();
+         it != outgoing_calls_.end(); ++it) {
+      TransportTCPPtr sock = (*it)->socket();
+      if (sock == conn) {
+        delete *it;
+        outgoing_calls_.erase(it);
+        return;
+      }
+    }
+    ROS_WARN("Couldn't find connection to erase");
+  }
   boost::mutex mutex_;
-  boost::condition_variable cv_;
-  boost::shared_array<uint8_t> bytes_;
-  uint32_t sz_;
-  bool done_; // false if outgoing rpc is not finished
-  bool opened_; // true if socket is open
+  std::list<ServiceResponse*> outgoing_calls_;
 };
 
 

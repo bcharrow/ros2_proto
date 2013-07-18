@@ -10,9 +10,9 @@ using namespace std;
 
 namespace ros2 {
 class Master {
-public:  
+public:
   Master(PollSet *ps) : ps_(ps) {
-    
+
   }
 
   ~Master() {
@@ -21,7 +21,7 @@ public:
       delete it->second;
     }
   }
-  
+
   void registerSubscription(const ros2_comm::RegisterSubscription::Request &req,
                             ros2_comm::RegisterSubscription::Response *resp) {
     NodeInfo *node = getOrCreateNode(req.node_uri);
@@ -39,7 +39,7 @@ public:
     node->unsubscribe(req.topic);
     ROS_INFO("Unregister subscription on %s for node %s",
              req.topic.c_str(), node->uri_.c_str());
-    printState();    
+    printState();
   }
 
   void registerPublication(const ros2_comm::RegisterPublication::Request &req,
@@ -57,22 +57,22 @@ public:
     node->unpublish(req.topic);
     ROS_INFO("Unregister publication on %s for node %s",
              req.topic.c_str(), node->uri_.c_str());
-    printState();        
+    printState();
   }
-  
+
   void lookupPublishers(const string &topic, vector<string> *node_uris) {
     set<NodeInfo*> &pubs = topics_[topic].publishers;
     for (set<NodeInfo*>::iterator it = pubs.begin(); it != pubs.end(); ++it) {
       node_uris->push_back((*it)->uri_);
     }
   }
-  
+
   void printState() {
     for (map<string, TopicInfo>::iterator it = topics_.begin();
          it != topics_.end(); ++it) {
       ROS_INFO("Topic = %s", it->first.c_str());
       TopicInfo &ti = it->second;
-      
+
       std::stringstream ss("");
       for (set<NodeInfo*>::iterator node_it = ti.subscribers.begin();
            node_it != ti.subscribers.end(); ++node_it) {
@@ -88,23 +88,23 @@ public:
       ROS_INFO_STREAM("  Publishers: " << ss.str());
     }
   }
-  
+
   void start(int port) {
     services_.reset(new MultiServiceManager(TransportTCPPtr(new TransportTCP(ps_))));
     services_->init(port);
-    ServiceCallbackPtr regSubCb(new ServiceCallbackT<ros2_comm::RegisterSubscription>(boost::bind(&Master::registerSubscription, this, _1, _2)));    
+    ServiceCallbackPtr regSubCb(new ServiceCallbackT<ros2_comm::RegisterSubscription>(boost::bind(&Master::registerSubscription, this, _1, _2)));
     services_->bind("registerSubscription", regSubCb);
 
-    ServiceCallbackPtr unregSubCb(new ServiceCallbackT<ros2_comm::UnregisterSubscription>(boost::bind(&Master::unregisterSubscription, this, _1, _2)));    
+    ServiceCallbackPtr unregSubCb(new ServiceCallbackT<ros2_comm::UnregisterSubscription>(boost::bind(&Master::unregisterSubscription, this, _1, _2)));
     services_->bind("unregisterSubscription", unregSubCb);
 
-    ServiceCallbackPtr regPubCb(new ServiceCallbackT<ros2_comm::RegisterPublication>(boost::bind(&Master::registerPublication, this, _1, _2)));    
+    ServiceCallbackPtr regPubCb(new ServiceCallbackT<ros2_comm::RegisterPublication>(boost::bind(&Master::registerPublication, this, _1, _2)));
     services_->bind("registerPublication", regPubCb);
 
-    ServiceCallbackPtr unregPubCb(new ServiceCallbackT<ros2_comm::UnregisterPublication>(boost::bind(&Master::unregisterPublication, this, _1, _2)));    
-    services_->bind("unregisterPublication", unregPubCb);        
+    ServiceCallbackPtr unregPubCb(new ServiceCallbackT<ros2_comm::UnregisterPublication>(boost::bind(&Master::unregisterPublication, this, _1, _2)));
+    services_->bind("unregisterPublication", unregPubCb);
   }
-  
+
 private:
   class NodeInfo {
   public:
@@ -119,7 +119,7 @@ private:
       subscriptions_.erase(topic);
       parent_->topics_[topic].subscribers.erase(this);
     }
-    
+
     void publish(const string &topic) {
       publications_.insert(topic);
       parent_->topics_[topic].publishers.insert(this);
@@ -129,7 +129,7 @@ private:
       publications_.erase(topic);
       parent_->topics_[topic].publishers.erase(this);
     }
-    
+
     ~NodeInfo() {
       for (set<string>::iterator it = subscriptions_.begin();
            it != subscriptions_.end(); ++it) {
@@ -138,7 +138,7 @@ private:
       for (set<string>::iterator it = publications_.begin();
            it != publications_.end(); ++it) {
         unpublish(*it);
-      }      
+      }
     }
 
     Master *parent_;
@@ -155,16 +155,16 @@ private:
     }
     return node;
   }
-  
+
   PollSet *ps_;
-  boost::scoped_ptr<MultiServiceManager> services_;  
+  boost::scoped_ptr<MultiServiceManager> services_;
   map<string, NodeInfo*> nodes_;
 
   struct TopicInfo {
     set<NodeInfo*> subscribers;
-    set<NodeInfo*> publishers;      
+    set<NodeInfo*> publishers;
   };
-  map<string, TopicInfo> topics_;  
+  map<string, TopicInfo> topics_;
 };
 
 }

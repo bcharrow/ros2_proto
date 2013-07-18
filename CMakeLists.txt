@@ -12,7 +12,7 @@ find_package(PkgConfig REQUIRED)
 pkg_search_module(zmq REQUIRED libzmq)
 
 add_service_files(FILES TopicRequest.srv RegisterSubscription.srv 
-  RegisterPublication.srv UnregisterSubscription.srv UnregisterPublication.srv)
+  RegisterPublication.srv UnregisterSubscription.srv UnregisterPublication.srv SetRemappings.srv)
 add_message_files(FILES TCPOptions.msg)
 generate_messages()
 
@@ -32,7 +32,7 @@ catkin_package(
 # include_directories(include ${catkin_INCLUDE_DIRS} ${Boost_INCLUDE_DIRS})
 include_directories(${catkin_INCLUDE_DIRS} ${Boost_INCLUDE_DIRS})
 
-add_library(ros2_comm src/core.cpp src/io.cpp src/poll_set.cpp
+add_library(ros2_comm src/io.cpp src/poll_set.cpp
   src/poll_manager.cpp src/common.cpp src/transport_tcp.cpp src/header.cpp)
 target_link_libraries(ros2_comm ${catkin_LIBRARIES} ${Boost_LIBRARIES} ${zmq_LIBRARIES} "snappy")
 
@@ -50,6 +50,9 @@ target_link_libraries(register_pub ros2_comm)
 
 add_executable(master src/master.cpp)
 target_link_libraries(master ros2_comm)
+
+add_executable(call_remap src/call_remap.cpp)
+target_link_libraries(call_remap ros2_comm)
 
 #############
 ## Install ##

@@ -21,11 +21,11 @@ int main(int argc, char **argv) {
 
   StaticRegistration static_res;
   MasterRegistration master_res(NodeAddress("127.0.0.1", 11311), &pm.getPollSet());
-  master_res.init(0);
-
   RegistrationProtocol *reg = &master_res;
 
-  TopicManager tm(reg);
+  TopicManager tm(reg, &pm.getPollSet());
+  tm.init(0);
+  master_res.myURI(tm.myURI());
 
   // tcp
   TCPPubFactory tcp_pub_factory(&pm.getPollSet());
