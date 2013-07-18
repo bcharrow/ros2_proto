@@ -1,9 +1,8 @@
 #include <list>
 
-#include "core.hpp"
-#include "transport_tcp.h"
 #include "poll_manager.h"
-
+#include "registration.hpp"
+#include "topic_manager.hpp"
 #include "pubsub_tcp.hpp"
 #include "pubsub_zmq.hpp"
 

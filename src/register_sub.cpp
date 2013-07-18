@@ -3,11 +3,11 @@
 #include <boost/thread/mutex.hpp>
 #include <boost/thread/condition_variable.hpp>
 
-#include "core.hpp"
+#include "poll_manager.h"
 #include "pubsub_tcp.hpp"
 #include "pubsub_zmq.hpp"
-
-#include "poll_manager.h"
+#include "registration.hpp"
+#include "topic_manager.hpp"
 
 using namespace std;
 using namespace ros2;

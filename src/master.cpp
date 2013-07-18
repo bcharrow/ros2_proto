@@ -1,10 +1,15 @@
-#include "core.hpp"
-#include "subscription.hpp"
-#include "poll_manager.h"
-
 #include <string>
 #include <set>
 #include <map>
+
+#include <ros2_comm/RegisterSubscription.h>
+#include <ros2_comm/UnregisterSubscription.h>
+#include <ros2_comm/RegisterPublication.h>
+#include <ros2_comm/UnregisterPublication.h>
+
+#include "poll_manager.h"
+#include "subscription.hpp"
+#include "service.hpp"
 
 using namespace std;
 
