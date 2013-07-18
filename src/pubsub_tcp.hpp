@@ -1,16 +1,16 @@
-#ifndef SUB_TCP_HPP
-#define SUB_TCP_HPP
+#ifndef PUBSUB_TCP_HPP
+#define PUBSUB_TCP_HPP
 
-#include "core.hpp"
-#include "subscription.hpp"
-#include "transport_tcp.h"
-#include <ros2_comm/TCPOptions.h>
+#include <list>
 
 #include <snappy.h>
 
 #include <boost/scoped_ptr.hpp>
 
-#include <list>
+#include <ros2_comm/TCPOptions.h>
+
+#include "transport_tcp.h"
+#include "pubsub.hpp"
 
 namespace ros2 {
 
@@ -314,4 +314,4 @@ private:
 
 }
 
-#endif // SUB_TCP_HPP
+#endif // PUBSUB_TCP_HPP

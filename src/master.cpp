@@ -8,7 +8,6 @@
 #include <ros2_comm/UnregisterPublication.h>
 
 #include "poll_manager.h"
-#include "subscription.hpp"
 #include "service.hpp"
 
 using namespace std;

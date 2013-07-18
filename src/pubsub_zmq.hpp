@@ -1,14 +1,14 @@
 #ifndef PUBSUB_ZMQ_HPP
 #define PUBSUB_ZMQ_HPP
 
-#include "zmq.hpp"
-
 #include <deque>
 
 #include <boost/thread/condition_variable.hpp>
 #include <boost/thread.hpp>
 
-#include "core.hpp"
+#include "zmq.hpp"
+
+#include "pubsub.hpp"
 
 namespace ros2 {
 

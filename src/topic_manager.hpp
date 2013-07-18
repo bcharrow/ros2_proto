@@ -10,7 +10,7 @@
 #include <ros2_comm/TopicRequest.h>
 #include <ros2_comm/SetRemappings.h>
 
-#include "subscription.hpp"
+#include "pubsub.hpp"
 #include "service.hpp"
 
 namespace ros2 {

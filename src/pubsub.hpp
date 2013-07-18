@@ -1,5 +1,5 @@
-#ifndef SUBSCRIPTION_HPP
-#define SUBSCRIPTION_HPP
+#ifndef PUBSUB_HPP
+#define PUBSUB_HPP
 
 #include "core.hpp"
 
