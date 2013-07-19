@@ -2,14 +2,14 @@
 #include "pubsub.hpp"
 #include "poll_manager.h"
 
-#include <ros2_comm/SetRemappings.h>
+#include <ros2_proto/SetRemappings.h>
 
 using namespace ros2;
 using namespace std;
 
 volatile bool done = false;
 
-void callback(const ros2_comm::SetRemappings &req_resp) {
+void callback(const ros2_proto::SetRemappings &req_resp) {
   ROS_INFO("Done!");
   done = true;
 }
@@ -31,7 +31,7 @@ int main(int argc, char **argv) {
   TransportTCPPtr tcp(new TransportTCP(&pm.getPollSet()));
   tcp->connect(addr, port);
 
-  ros2_comm::SetRemappings remaps;
+  ros2_proto::SetRemappings remaps;
   remaps.request.find.push_back(find);
   remaps.request.replace.push_back(replace);
   

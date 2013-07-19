@@ -8,9 +8,11 @@
 #include <boost/bind.hpp>
 #include <boost/thread/condition_variable.hpp>
 
+#ifndef DISALLOW_COPY_AND_ASSIGN
 #define DISALLOW_COPY_AND_ASSIGN(Type) \
   Type(const Type &other);             \
   void operator=(const Type &other);
+#endif
 
 namespace ros2 {
 

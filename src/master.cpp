@@ -2,10 +2,10 @@
 #include <set>
 #include <map>
 
-#include <ros2_comm/RegisterSubscription.h>
-#include <ros2_comm/UnregisterSubscription.h>
-#include <ros2_comm/RegisterPublication.h>
-#include <ros2_comm/UnregisterPublication.h>
+#include <ros2_proto/RegisterSubscription.h>
+#include <ros2_proto/UnregisterSubscription.h>
+#include <ros2_proto/RegisterPublication.h>
+#include <ros2_proto/UnregisterPublication.h>
 
 #include "poll_manager.h"
 #include "service.hpp"
@@ -26,8 +26,8 @@ public:
     }
   }
 
-  void registerSubscription(const ros2_comm::RegisterSubscription::Request &req,
-                            ros2_comm::RegisterSubscription::Response *resp) {
+  void registerSubscription(const ros2_proto::RegisterSubscription::Request &req,
+                            ros2_proto::RegisterSubscription::Response *resp) {
     NodeInfo *node = getOrCreateNode(req.node_uri);
     ROS_INFO("Registering subscription on %s for node %s",
              req.topic.c_str(), node->uri_.c_str());
@@ -37,8 +37,8 @@ public:
     printState();
   }
 
-  void unregisterSubscription(const ros2_comm::UnregisterSubscription::Request &req,
-                              ros2_comm::UnregisterSubscription::Response *resp) {
+  void unregisterSubscription(const ros2_proto::UnregisterSubscription::Request &req,
+                              ros2_proto::UnregisterSubscription::Response *resp) {
     NodeInfo *node = getOrCreateNode(req.node_uri);
     node->unsubscribe(req.topic);
     ROS_INFO("Unregister subscription on %s for node %s",
@@ -46,8 +46,8 @@ public:
     printState();
   }
 
-  void registerPublication(const ros2_comm::RegisterPublication::Request &req,
-                           ros2_comm::RegisterPublication::Response *resp) {
+  void registerPublication(const ros2_proto::RegisterPublication::Request &req,
+                           ros2_proto::RegisterPublication::Response *resp) {
     NodeInfo *node = getOrCreateNode(req.node_uri);
     node->publish(req.topic);
     ROS_INFO("Registering publication on %s for node %s",
@@ -55,8 +55,8 @@ public:
     printState();
   }
 
-  void unregisterPublication(const ros2_comm::UnregisterPublication::Request &req,
-                             ros2_comm::UnregisterPublication::Response *resp) {
+  void unregisterPublication(const ros2_proto::UnregisterPublication::Request &req,
+                             ros2_proto::UnregisterPublication::Response *resp) {
     NodeInfo *node = getOrCreateNode(req.node_uri);
     node->unpublish(req.topic);
     ROS_INFO("Unregister publication on %s for node %s",
@@ -96,16 +96,16 @@ public:
   void start(int port) {
     services_.reset(new MultiServiceManager(TransportTCPPtr(new TransportTCP(ps_))));
     services_->init(port);
-    ServiceCallbackPtr regSubCb(new ServiceCallbackT<ros2_comm::RegisterSubscription>(boost::bind(&Master::registerSubscription, this, _1, _2)));
+    ServiceCallbackPtr regSubCb(new ServiceCallbackT<ros2_proto::RegisterSubscription>(boost::bind(&Master::registerSubscription, this, _1, _2)));
     services_->bind("registerSubscription", regSubCb);
 
-    ServiceCallbackPtr unregSubCb(new ServiceCallbackT<ros2_comm::UnregisterSubscription>(boost::bind(&Master::unregisterSubscription, this, _1, _2)));
+    ServiceCallbackPtr unregSubCb(new ServiceCallbackT<ros2_proto::UnregisterSubscription>(boost::bind(&Master::unregisterSubscription, this, _1, _2)));
     services_->bind("unregisterSubscription", unregSubCb);
 
-    ServiceCallbackPtr regPubCb(new ServiceCallbackT<ros2_comm::RegisterPublication>(boost::bind(&Master::registerPublication, this, _1, _2)));
+    ServiceCallbackPtr regPubCb(new ServiceCallbackT<ros2_proto::RegisterPublication>(boost::bind(&Master::registerPublication, this, _1, _2)));
     services_->bind("registerPublication", regPubCb);
 
-    ServiceCallbackPtr unregPubCb(new ServiceCallbackT<ros2_comm::UnregisterPublication>(boost::bind(&Master::unregisterPublication, this, _1, _2)));
+    ServiceCallbackPtr unregPubCb(new ServiceCallbackT<ros2_proto::UnregisterPublication>(boost::bind(&Master::unregisterPublication, this, _1, _2)));
     services_->bind("unregisterPublication", unregPubCb);
   }
 

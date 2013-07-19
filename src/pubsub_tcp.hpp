@@ -7,7 +7,7 @@
 
 #include <boost/scoped_ptr.hpp>
 
-#include <ros2_comm/TCPOptions.h>
+#include <ros2_proto/TCPOptions.h>
 
 #include "transport_tcp.h"
 #include "pubsub.hpp"
@@ -50,10 +50,10 @@ public:
          it != conns.end(); ++it) {
       if (it->setup) {
         switch (it->opts.compression) {
-        case ros2_comm::TCPOptions::NONE:
+        case ros2_proto::TCPOptions::NONE:
           it->tcp->sendMessage(data, msg.size());
           break;
-        case ros2_comm::TCPOptions::SNAPPY:
+        case ros2_proto::TCPOptions::SNAPPY:
           if (snappy_data == NULL) {
             uint32_t max_snappy_sz = snappy::MaxCompressedLength(msg.size());
             snappy_data.reset(new uint8_t[max_snappy_sz]);
@@ -136,7 +136,7 @@ public:
           ROS_BREAK();
         }
         ros::serialization::IStream istream(bytes.get(), sz);
-        ros::serialization::Serializer<ros2_comm::TCPOptions>::read(istream, conn.opts);
+        ros::serialization::Serializer<ros2_proto::TCPOptions>::read(istream, conn.opts);
         tcp->setNoDelay(conn.opts.tcp_nodelay);
         tcp->setFilter(conn.opts.filter);
         conn.setup = true;
@@ -166,7 +166,7 @@ private:
   struct Connection {
     TransportTCPPtr tcp;
     bool setup;
-    ros2_comm::TCPOptions opts;
+    ros2_proto::TCPOptions opts;
   };
 
   TransportTCPPtr server_;
@@ -201,10 +201,10 @@ class TCPSubscribe : public SubscribeTransport {
 public:
   TCPSubscribe(PollSet *ps) : ps_(ps) {
     opts_.tcp_nodelay = false;
-    opts_.compression = ros2_comm::TCPOptions::NONE;
+    opts_.compression = ros2_proto::TCPOptions::NONE;
   }
 
-  TCPSubscribe(PollSet *ps, const ros2_comm::TCPOptions &opts)
+  TCPSubscribe(PollSet *ps, const ros2_proto::TCPOptions &opts)
     : ps_(ps), opts_(opts) {}
 
   ~TCPSubscribe() {
@@ -259,11 +259,11 @@ public:
     uint32_t sz = frames[0].size;
 
     // ROS_INFO("TCPSubscribe::receive() Got a message!");
-    if (opts_.compression == ros2_comm::TCPOptions::NONE) {
+    if (opts_.compression == ros2_proto::TCPOptions::NONE) {
       Message msg(sz);
       std::copy(bytes.get(), bytes.get() + sz, msg.bytes());
       cb_(msg);
-    } else if (opts_.compression == ros2_comm::TCPOptions::SNAPPY) {
+    } else if (opts_.compression == ros2_proto::TCPOptions::SNAPPY) {
       bool success;
       size_t uncompressed_sz;
       if (!snappy::GetUncompressedLength((char*)bytes.get(), sz, &uncompressed_sz)) {
@@ -291,7 +291,7 @@ protected:
   PollSet *ps_;
   TransportTCPPtr tcp_;
   MessageCallback cb_;
-  ros2_comm::TCPOptions opts_;
+  ros2_proto::TCPOptions opts_;
 };
 
 class TCPSubFactory : public SubscribeTransportFactory {
@@ -301,9 +301,9 @@ public:
   }
 
   virtual TCPSubscribe* CreateSubTransport() {
-    ros2_comm::TCPOptions opts;
+    ros2_proto::TCPOptions opts;
     opts.tcp_nodelay = true;
-    opts.compression = ros2_comm::TCPOptions::NONE;
+    opts.compression = ros2_proto::TCPOptions::NONE;
     opts.filter = 1;
     return new TCPSubscribe(ps_, opts);
   }

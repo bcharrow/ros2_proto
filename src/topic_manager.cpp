@@ -119,17 +119,17 @@ std::vector<std::string> TopicManager::publicationURIs(const std::string &topic)
 void TopicManager::init(int port) {
   services_.reset(new MultiServiceManager(TransportTCPPtr(new TransportTCP(ps_))));
   services_->init(port);
-  ServiceCallbackPtr scht(new ServiceCallbackT<ros2_comm::TopicRequest>(boost::bind(&TopicManager::requestTopic, this, _1, _2)));
+  ServiceCallbackPtr scht(new ServiceCallbackT<ros2_proto::TopicRequest>(boost::bind(&TopicManager::requestTopic, this, _1, _2)));
   services_->bind("requestTopic", scht);
 
-  ServiceCallbackPtr remaps(new ServiceCallbackT<ros2_comm::SetRemappings>(boost::bind(&TopicManager::setRemappings, this, _1, _2)));
+  ServiceCallbackPtr remaps(new ServiceCallbackT<ros2_proto::SetRemappings>(boost::bind(&TopicManager::setRemappings, this, _1, _2)));
   services_->bind("setRemappings", remaps);
 
   ROS_INFO("TopicManager @ %s", myURI().c_str());
 }
 
-void TopicManager::requestTopic(const ros2_comm::TopicRequest::Request &request,
-                                ros2_comm::TopicRequest::Response *response) {
+void TopicManager::requestTopic(const ros2_proto::TopicRequest::Request &request,
+                                ros2_proto::TopicRequest::Response *response) {
   boost::recursive_mutex::scoped_lock lock(mutex_);
 
   ROS_INFO_STREAM("Got a request:\n" << request);
@@ -137,8 +137,8 @@ void TopicManager::requestTopic(const ros2_comm::TopicRequest::Request &request,
   ROS_INFO_STREAM("Responding with:\n" << *response);
 }
 
-void TopicManager::setRemappings(const ros2_comm::SetRemappings::Request &request,
-                                 ros2_comm::SetRemappings::Response *response) {
+void TopicManager::setRemappings(const ros2_proto::SetRemappings::Request &request,
+                                 ros2_proto::SetRemappings::Response *response) {
   boost::recursive_mutex::scoped_lock lock(mutex_);
 
   const std::vector<std::string> &find = request.find;

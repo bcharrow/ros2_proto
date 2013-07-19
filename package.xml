@@ -1,8 +1,8 @@
 <?xml version="1.0"?>
 <package>
-  <name>ros2_comm</name>
+  <name>ros2_proto</name>
   <version>0.0.0</version>
-  <description>The ros2_comm package</description>
+  <description>The ros2_prot package</description>
 
   <!-- One maintainer tag required, multiple allowed, one person per tag --> 
   <!-- Example:  -->

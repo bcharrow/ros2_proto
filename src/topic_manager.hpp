@@ -7,8 +7,8 @@
 #include <boost/thread/recursive_mutex.hpp>
 #include <boost/scoped_ptr.hpp>
 
-#include <ros2_comm/TopicRequest.h>
-#include <ros2_comm/SetRemappings.h>
+#include <ros2_proto/TopicRequest.h>
+#include <ros2_proto/SetRemappings.h>
 
 #include "pubsub.hpp"
 #include "service.hpp"
@@ -42,10 +42,10 @@ public:
   
   //================================= RPCs ==================================//
   void init(int port);
-  void requestTopic(const ros2_comm::TopicRequest::Request &request,
-                    ros2_comm::TopicRequest::Response *response);
-  void setRemappings(const ros2_comm::SetRemappings::Request &request,
-                     ros2_comm::SetRemappings::Response *response);
+  void requestTopic(const ros2_proto::TopicRequest::Request &request,
+                    ros2_proto::TopicRequest::Response *response);
+  void setRemappings(const ros2_proto::SetRemappings::Request &request,
+                     ros2_proto::SetRemappings::Response *response);
   std::string myURI();
   
   //=============================== Remapping ===============================//

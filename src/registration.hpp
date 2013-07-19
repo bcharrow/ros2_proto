@@ -5,11 +5,11 @@
 
 #include <ros/console.h>
 
-#include <ros2_comm/TopicRequest.h>
-#include <ros2_comm/RegisterSubscription.h>
-#include <ros2_comm/UnregisterSubscription.h>
-#include <ros2_comm/RegisterPublication.h>
-#include <ros2_comm/UnregisterPublication.h>
+#include <ros2_proto/TopicRequest.h>
+#include <ros2_proto/RegisterSubscription.h>
+#include <ros2_proto/UnregisterSubscription.h>
+#include <ros2_proto/RegisterPublication.h>
+#include <ros2_proto/UnregisterPublication.h>
 
 #include "service.hpp"
 
@@ -95,7 +95,7 @@ public:
   virtual void registerSubscription(const std::string &topic,
                                     const SubscriptionCallback &callback) {
     // Contact master to get publishers
-    ros2_comm::RegisterSubscription reg_sub;
+    ros2_proto::RegisterSubscription reg_sub;
     reg_sub.request.topic = topic;
     reg_sub.request.node_uri = myURI();
     callMaster("registerSubscription", reg_sub,
@@ -103,7 +103,7 @@ public:
                            _1, callback));
   }
 
-  void registerSubscriptionCb(const ros2_comm::RegisterSubscription &reg_sub,
+  void registerSubscriptionCb(const ros2_proto::RegisterSubscription &reg_sub,
                               const SubscriptionCallback &callback) {
     // Contact publishers to get endpoints
     contactPublishers(reg_sub.request.topic,
@@ -113,7 +113,7 @@ public:
 
   virtual bool unregisterSubscription(const std::string &topic) {
     ROS_INFO("Unregistering subscripton on %s", topic.c_str());
-    ros2_comm::UnregisterSubscription unreg_sub;
+    ros2_proto::UnregisterSubscription unreg_sub;
     unreg_sub.request.topic = topic;
     unreg_sub.request.node_uri = myURI();
     callMaster("unregisterSubscription", unreg_sub);
@@ -123,7 +123,7 @@ public:
   virtual void registerPublication(const std::string &topic) {
     ROS_INFO("Registering publication on %s", topic.c_str());
     // Inform master we're publishing
-    ros2_comm::RegisterPublication reg_pub;
+    ros2_proto::RegisterPublication reg_pub;
     reg_pub.request.topic = topic;
     reg_pub.request.node_uri = myURI();
     callMaster("registerPublication", reg_pub);
@@ -131,7 +131,7 @@ public:
 
   virtual bool unregisterPublication(const std::string &topic) {
     ROS_INFO("Unregistering publication on %s", topic.c_str());
-    ros2_comm::UnregisterPublication unreg_pub;
+    ros2_proto::UnregisterPublication unreg_pub;
     unreg_pub.request.topic = topic;
     unreg_pub.request.node_uri = my_uri_;
     callMaster("unregisterPublication", unreg_pub);
@@ -172,7 +172,7 @@ private:
   }
 
 
-  void handleCallback(const ros2_comm::TopicRequest &req_resp,
+  void handleCallback(const ros2_proto::TopicRequest &req_resp,
                       const SubscriptionCallback &callback) {
     callback(req_resp.response.uris);
   }
@@ -188,7 +188,7 @@ private:
       TransportTCPPtr tcp(new TransportTCP(ps_));
       tcp->connect(addr, port);
 
-      ros2_comm::TopicRequest req_rep;
+      ros2_proto::TopicRequest req_rep;
       req_rep.request.topic = topic;
       msc_.call(tcp, "requestTopic", req_rep,
                 boost::bind(&MasterRegistration::handleCallback, this, _1, callback));
